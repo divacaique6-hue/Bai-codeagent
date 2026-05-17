@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { FrameworkScoutAgent } from "./src/agents/frameworkScoutAgent.js";
 import { LocalRepoScoutAgent } from "./src/agents/localRepoScoutAgent.js";
 import { AuditAnalystAgent } from "./src/agents/auditAnalystAgent.js";
+import { FofaScoutAgent } from "./src/agents/fofaScoutAgent.js";
 import { getAuditSkillCatalog } from "./src/config/auditSkills.js";
 import { getProviderPreset, maskSecret, resolveLlmConfig } from "./src/config/llmProviders.js";
 import { buildEnvironmentReport } from "./src/services/environmentReport.js";
@@ -14,7 +15,6 @@ import { createFingerprintService } from "./src/services/fingerprintService.js";
 import { writeAuditHtmlReport } from "./src/services/reportWriter.js";
 import { createSettingsStore } from "./src/services/settingsStore.js";
 import { createTaskStore } from "./src/store/taskStore.js";
-import { scanDependencies } from "./src/services/dependencyAudit.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,6 +28,9 @@ const settingsStore = createSettingsStore({ filePath: settingsFile });
 const scoutAgent = new FrameworkScoutAgent({
   downloadsDir,
   getGithubConfig: async () => (await settingsStore.read()).github
+});
+const fofaScoutAgent = new FofaScoutAgent({
+  getFofaConfig: async () => (await settingsStore.read()).fofa
 });
 const localScoutAgent = new LocalRepoScoutAgent({ downloadsDir });
 const llmReviewer = new DefensiveLlmReviewer();
@@ -117,25 +120,19 @@ const server = http.createServer(async (req, res) => {
       }));
     }
 
+    if (req.method === "GET" && url.pathname === "/api/fofa/quick") {
+      const settings = await settingsStore.read();
+      if (!settings.fofa.apiKey) {
+        return sendJson(res, 400, { error: "未配置 FOFA API Key" });
+      }
+      const query = url.searchParams.get("q") || "";
+      const result = await fofaScoutAgent.run({ query, size: 10 });
+      return sendJson(res, 200, result);
+    }
+
     if (req.method === "POST" && url.pathname === "/api/memory") {
       const body = await readJson(req);
       return sendJson(res, 200, await memoryStore.write({ preferences: body.preferences || {}, rules: Array.isArray(body.rules) ? body.rules : undefined }));
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/dependency-scan") {
-      const body = await readJson(req);
-      const projectId = String(body?.projectId || "");
-      if (!projectId) {
-        return sendJson(res, 400, { error: "Missing projectId" });
-      }
-      const sourceRoot = path.join(downloadsDir, projectId);
-      try {
-        await fs.access(sourceRoot);
-      } catch {
-        return sendJson(res, 404, { error: "Project not found in downloads" });
-      }
-      const findings = await scanDependencies(sourceRoot);
-      return sendJson(res, 200, { projectId, findingsCount: findings.length, findings });
     }
 
     if (req.method === "POST" && url.pathname === "/api/tasks") {
@@ -168,6 +165,22 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, tasks.listTasks());
     }
 
+    if (req.method === "POST" && url.pathname === "/api/tasks/cancel") {
+      const body = await readJson(req);
+      const taskId = body?.taskId;
+      const task = tasks.getTask(taskId);
+      if (!task) {
+        return sendJson(res, 404, { error: "Task not found" });
+      }
+      tasks.updateTask(taskId, { status: "cancelled", phase: "cancelled", message: "Task cancelled by user." });
+      return sendJson(res, 200, tasks.getTask(taskId));
+    }
+
+    if (req.method === "GET" && url.pathname.startsWith("/api/tasks/") && url.pathname.endsWith("/stream")) {
+      const id = url.pathname.split("/")[3];
+      return serveSse(res, id, tasks);
+    }
+
     if (req.method === "GET" && url.pathname.startsWith("/api/tasks/")) {
       const id = url.pathname.split("/")[3];
       const task = tasks.getTask(id);
@@ -178,19 +191,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname.startsWith("/downloads/")) {
-      const requested = path.resolve(downloadsDir, decodeURIComponent(url.pathname.replace("/downloads/", "")));
-      if (!requested.startsWith(path.resolve(downloadsDir))) {
-        return sendJson(res, 403, { error: "Path traversal blocked" });
-      }
-      return serveFile(res, requested);
+      return serveFile(res, path.join(downloadsDir, decodeURIComponent(url.pathname.replace("/downloads/", ""))));
     }
 
     if (req.method === "GET" && url.pathname.startsWith("/reports/")) {
-      const requested = path.resolve(reportsDir, decodeURIComponent(url.pathname.replace("/reports/", "")));
-      if (!requested.startsWith(path.resolve(reportsDir))) {
-        return sendJson(res, 403, { error: "Path traversal blocked" });
-      }
-      return serveFile(res, requested);
+      return serveFile(res, path.join(reportsDir, decodeURIComponent(url.pathname.replace("/reports/", ""))));
     }
 
     if (req.method === "GET") {
@@ -438,8 +443,14 @@ function providerDefaults(providerId) {
 
 async function testConnections(settings) {
   const llm = resolveLlmConfig(process.env, settings.llm);
-  const [llmTest, githubTest] = await Promise.all([testLlmConnection(llm), testGithubConnection(settings.github)]);
-  return { testedAt: new Date().toISOString(), llm: llmTest, github: githubTest, overall: llmTest.ok && githubTest.ok ? "pass" : llmTest.ok || githubTest.ok ? "partial" : "warn" };
+  const [llmTest, githubTest, fofaTest] = await Promise.all([
+    testLlmConnection(llm),
+    testGithubConnection(settings.github),
+    testFofaConnection(settings.fofa)
+  ]);
+  const allOk = llmTest.ok && githubTest.ok && fofaTest.ok;
+  const someOk = llmTest.ok || githubTest.ok || fofaTest.ok;
+  return { testedAt: new Date().toISOString(), llm: llmTest, github: githubTest, fofa: fofaTest, overall: allOk ? "pass" : someOk ? "partial" : "warn" };
 }
 
 async function testGithubConnection(github) {
@@ -471,6 +482,27 @@ async function testGithubConnection(github) {
     }
 
     return { ok: false, status: "warn", message: `GitHub 返回 ${response.status}` };
+  } catch (error) {
+    return { ok: false, status: "warn", message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function testFofaConnection(fofa) {
+  if (!fofa.apiKey) return { ok: false, status: "warn", message: "未配置 FOFA API Key" };
+  if (!fofa.email) return { ok: false, status: "warn", message: "未配置 FOFA Email" };
+  try {
+    const encoded = btoa(`${fofa.email}:${fofa.apiKey}`);
+    const response = await fetch("https://api.fofa.com/v1/search/all?size=1&qbase64=IiI=", {
+      headers: {
+        Authorization: `Basic ${encoded}`,
+        Accept: "application/json"
+      }
+    });
+
+    if (response.ok) {
+      return { ok: true, status: "pass", message: "FOFA API 可用" };
+    }
+    return { ok: false, status: "warn", message: `FOFA 返回 ${response.status}` };
   } catch (error) {
     return { ok: false, status: "warn", message: error instanceof Error ? error.message : String(error) };
   }
@@ -603,6 +635,23 @@ function sendJson(res, statusCode, payload) {
     Expires: "0"
   });
   res.end(JSON.stringify(payload, null, 2));
+}
+
+function serveSse(res, taskId, taskStore) {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-store, max-age=0",
+    "Connection": "keep-alive"
+  });
+
+  const unsubscribe = taskStore.subscribe(taskId, (event) => {
+    res.write(`event: ${event.event}\n`);
+    res.write(`data: ${JSON.stringify(event.task)}\n\n`);
+  });
+
+  res.on("close", () => {
+    unsubscribe();
+  });
 }
 
 const port = process.env.PORT || 3000;

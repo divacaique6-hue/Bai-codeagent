@@ -10,6 +10,7 @@ let fingerprintProjects = [];
 let selectedFingerprintProjectId = "";
 let fingerprintAnalysisCache = new Map();
 let refreshTimer = null;
+let sseConnection = null;
 
 const providerDefaultsMap = {
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
@@ -39,6 +40,10 @@ async function bootstrap() {
     initAuditPage();
     await refreshAuditPage();
     refreshTimer = setInterval(refreshAuditPage, 1800);
+
+    if (selectedTaskId) {
+      connectSse(selectedTaskId);
+    }
   }
 
   if (page === "fingerprints") {
@@ -261,7 +266,26 @@ async function renderOverviewTasks() {
 
 function initAuditPage() {
   document.querySelector("#refresh-button")?.addEventListener("click", refreshAuditPage);
+  document.querySelector("#cancel-task-button")?.addEventListener("click", cancelCurrentTask);
   selectedTaskId = new URLSearchParams(location.search).get("task") || null;
+}
+
+function connectSse(taskId) {
+  if (sseConnection) {
+    sseConnection.close();
+  }
+  if (!taskId) return;
+
+  sseConnection = new EventSource(`/api/tasks/${taskId}/stream`);
+  sseConnection.addEventListener("update", (event) => {
+    const task = JSON.parse(event.data);
+    if (task.status === "running" || task.status === "completed") {
+      refreshAuditPage();
+    }
+  });
+  sseConnection.addEventListener("created", (event) => {
+    refreshAuditPage();
+  });
 }
 
 async function refreshAuditPage() {
@@ -279,6 +303,26 @@ async function refreshAuditPage() {
 
   const task = await api(`/api/tasks/${selectedTaskId}`);
   renderTaskDetail(task);
+
+  if (task.status === "running") {
+    if (!sseConnection || sseConnection.readyState !== EventSource.OPEN) {
+      connectSse(selectedTaskId);
+    }
+  } else {
+    if (sseConnection) {
+      sseConnection.close();
+      sseConnection = null;
+    }
+  }
+}
+
+async function cancelCurrentTask() {
+  if (!selectedTaskId) return;
+  if (!confirm("确定要取消当前任务吗？")) return;
+
+  await api("/api/tasks/cancel", { method: "POST", body: { taskId: selectedTaskId } });
+  showToast("任务已取消。", "success");
+  await refreshAuditPage();
 }
 
 function renderTaskList(tasks) {
@@ -338,6 +382,7 @@ function renderTaskDetail(task) {
           ? `<p><a class="download-link" href="${escapeHtml(task.report.downloadPath)}" target="_blank" rel="noreferrer">下载 HTML 报告</a></p>`
           : ""
       }
+      ${task.status === "running" ? `<button id="cancel-task-button" type="button" class="ghost" style="margin-top:0.5rem">取消任务</button>` : ""}
     </div>
 
     <div class="detail-block">
@@ -731,6 +776,7 @@ async function testConnections() {
         <div class="info-item"><strong>整体</strong><span>${escapeHtml(result.overall)}</span></div>
         <div class="info-item"><strong>LLM</strong><span>${escapeHtml(result.llm.message)}</span></div>
         <div class="info-item"><strong>GitHub</strong><span>${escapeHtml(result.github.message)}</span></div>
+        <div class="info-item"><strong>FOFA</strong><span>${escapeHtml(result.fofa?.message || "未测试")}</span></div>
       </div>
     `
   );

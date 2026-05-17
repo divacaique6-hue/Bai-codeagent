@@ -194,30 +194,64 @@ async function requestStructuredReview({ llmConfig, systemPrompt, userPrompt }) 
 function buildSystemPrompt(selectedSkills) {
   const skills = selectedSkills.map((skill) => `- ${skill.name}: ${skill.reviewPrompt}`).join("\n");
   return [
-    "你是一个防御性代码审计助手。",
-    "只输出风险说明、证据、影响、修复建议和安全验证建议。",
-    "不要提供利用步骤、payload、绕过思路、攻击链构造或 weaponization 细节。",
-    "如果证据不足，就降低置信度或不要报出该问题。",
-    "请只返回 JSON 对象，不要输出额外说明。",
-    "关注的审计 Skill：",
+    "你是一个防御性代码审计助手，专注于识别真实的安全风险。",
+    "",
+    "## 核心原则",
+    "1. 只报告真实存在、可被利用的安全问题，不是误报",
+    "2. 如果代码中有防护措施（验证、过滤、转义、白名单），不要报告风险",
+    "3. 需要实际证据（漏洞代码模式）才能报告，不能猜测",
+    "4. 如果证据不足，降低置信度或不要报告",
+    "",
+    "## 输出要求",
+    "1. 只返回 JSON 对象，不要输出额外说明",
+    "2. 严重性等级：critical（可利用/高风险）, high（条件成立时风险）, medium（需要注意）, low（低风险）",
+    "3. 置信度必须在 0.7 以上才能报告",
+    "",
+    "## 不报告的示例（误报）",
+    "- 有输入验证但报告 XSS：有 escapeHtml/sanitize 的代码",
+    "- 有参数化查询但报告 SQL 注入：使用了 prepared statement",
+    "- 有权限校验但报告越权：有 authorize/can/checkPermission",
+    "- 白名单路径但报告路径穿越：使用 path.join/normalize",
+    "",
+    "## 需要报告的示例（真阳性）",
+    "- 用户输入直接拼接到 SQL 查询中",
+    "- eval() 中使用用户输入",
+    "- 文件路径直接拼接用户输入",
+    "- JWT 密钥硬编码",
+    "- 管理员路由无认证",
+    "",
+    "## 审计 Skill：",
     skills
   ].join("\n");
 }
 
 function buildUserPrompt({ project, selectedSkills, heuristicFindings, batch }) {
-  const heuristicSummary = heuristicFindings.slice(0, 8).map((finding) => `- ${finding.title} @ ${finding.location}`).join("\n") || "- 当前规则层未提供额外提示";
+  const heuristicSummary = heuristicFindings.slice(0, 8).map((finding) => `- ${finding.title} @ ${finding.location} (置信度: ${finding.confidence})`).join("\n") || "- 当前规则层未发现明确问题";
   const skills = selectedSkills.map((skill) => `${skill.id}: ${skill.description}`).join("\n");
   const snippets = batch.map((file) => `FILE: ${file.relativePath}\n\`\`\`${file.language}\n${file.content}\n\`\`\``).join("\n\n");
 
   return [
+    `## 项目信息`,
     `项目名称：${project.name}`,
-    `审计镜像路径：${project.localPath || path.join("workspace", "downloads", project.id)}`,
-    `来源模式：${project.sourceType}`,
-    `已启用 Skill：\n${skills}`,
-    `规则层提示：\n${heuristicSummary}`,
-    "请审阅下面的本地源码片段，输出不超过 3 条高置信度结果。",
-    "严格返回如下 JSON：",
-    '{ "findings": [ { "title": "", "severity": "low|medium|high", "confidence": 0.0, "location": "", "skillId": "", "evidence": "", "impact": "", "remediation": "", "safeValidation": "" } ] }',
+    `审计路径：${project.localPath || path.join("workspace", "downloads", project.id)}`,
+    "",
+    `## 已启用的审计 Skill：`,
+    skills,
+    "",
+    `## 规则层已发现的问题（供参考）：`,
+    heuristicSummary,
+    "",
+    `## 任务`,
+    "请仔细审阅以下源码片段，只报告确实存在安全问题的真实漏洞。",
+    "对于每个发现：",
+    "1. 给出精确的问题位置（文件:行号）",
+    "2. 说明漏洞的具体代码模式",
+    "3. 确认没有防护措施才报告（检查代码中是否有 validate/sanitize/escape/authorize 等）",
+    "",
+    "## 输出格式（严格 JSON）：",
+    '{ "findings": [ { "title": "问题标题", "severity": "critical|high|medium|low", "confidence": 0.7-1.0, "location": "文件路径:行号", "skillId": "skill id", "evidence": "具体漏洞代码", "impact": "影响说明", "remediation": "修复建议", "safeValidation": "验证建议" } ] }',
+    "",
+    `## 源码片段：`,
     snippets
   ].join("\n\n");
 }
@@ -345,10 +379,11 @@ function normalizeFindings(findings, selectedSkills) {
       skillId: validSkillIds.has(finding.skillId) ? finding.skillId : selectedSkills[0]?.id || "access-control",
       evidence: safeString(finding.evidence, "模型复核认为这里存在值得继续人工确认的实现迹象。"),
       impact: safeString(finding.impact, "该实现如果在真实部署中成立，可能扩大管理面、数据面或配置暴露面。"),
-      remediation: safeString(finding.remediation, "建议结合服务端收口、权限校验和配置默认值治理进行修复。"),
+      remediation: safeString(finding.remediation, "建议结合服务端收口、权限校验和默认值治理进行修复。"),
       safeValidation: safeString(finding.safeValidation, "建议在本地或测试环境里补充代码走读与单元测试来确认边界。")
     }))
-    .filter((finding) => finding.confidence >= 0.55);
+    // 提高置信度阈值到 0.7 以减少误报
+    .filter((finding) => finding.confidence >= 0.7);
 }
 
 function dedupeFindings(findings) {

@@ -20,7 +20,7 @@ class PatternDB:
 
     def __init__(
         self,
-        path: str | Path,
+        path,  # str | Path
         max_bytes: int = DEFAULT_MAX_BYTES,
         keep_backups: int = DEFAULT_KEEP,
     ):
@@ -39,19 +39,19 @@ class PatternDB:
         # paying the read cost up-front. Cross-process dedup is best-effort:
         # two processes with independent instances can each pass the dedup
         # check before either writes. The cost is one wasted JSONL row.
-        self._dedup_keys: set[tuple[str, str, str]] | None = None
+        self._dedup_keys = None  # Optional[set[tuple[str, str, str]]]
 
     @staticmethod
     def _dedup_key(entry: dict) -> tuple[str, str, str]:
         return (entry.get("target", ""), entry.get("vuln_class", ""), entry.get("technique", ""))
 
-    def _load_dedup_keys(self) -> set[tuple[str, str, str]]:
+    def _load_dedup_keys(self):
         """Build the dedup key set by streaming the file once.
 
         Skips corrupted lines silently — they cannot collide with a valid
         save, and ``read_all`` already warns about them.
         """
-        keys: set[tuple[str, str, str]] = set()
+        keys = set()
         if not self.path.exists():
             return keys
         with open(self.path, "r", encoding="utf-8") as f:
@@ -134,8 +134,7 @@ class PatternDB:
 
         return entries
 
-    def match(self, *, vuln_class: str | None = None,
-              tech_stack: list[str] | None = None) -> list[dict]:
+    def match(self, *, vuln_class=None, tech_stack=None):
         """Find patterns matching vuln class and/or overlapping tech stack.
 
         Args:

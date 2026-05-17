@@ -19,9 +19,9 @@ class ScopeChecker:
 
     def __init__(
         self,
-        domains: list[str],
-        excluded_domains: list[str] | None = None,
-        excluded_classes: list[str] | None = None,
+        domains,           # list[str]
+        excluded_domains=None,  # Optional[list[str]]
+        excluded_classes=None,  # Optional[list[str]]
     ):
         """
         Args:
@@ -95,7 +95,7 @@ class ScopeChecker:
                 out_of_scope.append(url)
         return in_scope, out_of_scope
 
-    def filter_file(self, input_path: str, output_path: str | None = None) -> tuple[int, int]:
+    def filter_file(self, input_path, output_path=None):
         """Filter a file of URLs (one per line) through scope check.
 
         Args:

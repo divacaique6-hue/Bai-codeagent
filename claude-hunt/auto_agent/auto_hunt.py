@@ -25,6 +25,7 @@ from phases.recon import ReconPhase
 from phases.params import ParamPhase
 from phases.hunt import HuntPhase
 from phases.validate import ValidatePhase
+from phases.verify import VerifyPhase
 from phases.report import ReportPhase
 
 try:
@@ -132,6 +133,7 @@ def run_agent(target, mode, config):
         ParamPhase(engine, logger, redline, tracer, mode),
         HuntPhase(engine, logger, redline, tracer, mode),
         ValidatePhase(engine, logger, redline, tracer, mode),
+        VerifyPhase(engine, logger, redline, tracer, mode),
         ReportPhase(engine, logger, redline, tracer, mode),
     ]
     

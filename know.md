@@ -935,3 +935,92 @@ go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 # 方式3：重新跑安装脚本（会跳过已安装的）
 bash claude-hunt/install_tools_linux.sh
 ```
+
+
+
+---
+
+## 2025-06-18 Windows兼容性修复
+
+### 问题背景
+
+原工具链是 Linux/macOS 优先设计，Windows 上缺失致命依赖导致完全无法运行。
+
+### 修复的致命缺失
+
+| 组件 | 作用 | Windows安装方式 | Linux安装方式 |
+|------|------|----------------|--------------|
+| **Go** | 24个Go安全工具的编译运行时 | 脚本自动下载 `go1.24.4.windows-amd64.msi` 静默安装 | 脚本自动下载tar.gz解压到 `/usr/local/go` |
+| **Ollama** | 本地LLM引擎，`brain.py` 核心依赖 | 脚本自动下载 `OllamaSetup.exe` 静默安装 | `curl -fsSL https://ollama.com/install.sh \| sh` |
+| **jq** | JSON处理工具（管道数据解析） | 脚本自动下载binary到 `%LOCALAPPDATA%\jq\` | apt install jq（已在系统依赖里） |
+| **nmap** | 端口扫描+服务识别 | 脚本自动下载 `nmap-7.95-setup.exe` 静默安装 | apt install nmap |
+
+### 新增的Python AI/LLM依赖（brain.py需要）
+
+| 包名 | 作用 | 说明 |
+|------|------|------|
+| **ollama** | Ollama Python SDK | brain.py 通过这个包调用本地LLM |
+| **rich** | 终端美化输出 | 彩色日志、进度条、表格 |
+| **langgraph** | LLM Agent图引擎 | 构建多步骤AI Agent工作流 |
+| **langchain-ollama** | LangChain + Ollama集成 | 让LangChain调用本地Ollama模型 |
+| **Pillow** | 图像处理 | 截图OCR、验证码识别 |
+| **selenium** | 浏览器自动化 | Playwright的备选方案 |
+| **beautifulsoup4** | HTML解析 | 页面内容提取 |
+| **playwright** | 无头浏览器 | 自动登录、表单操作、Cookie提取 |
+
+### 新增Go工具
+
+| 工具 | 作用 | 为什么加 |
+|------|------|---------|
+| **subzy** | 子域名接管检测 | 比subjack更活跃，指纹库更新 |
+
+### Ollama使用说明
+
+```bash
+# 1. 安装完脚本后，拉取模型（约5GB）
+ollama pull deepseek-r1:8b
+
+# 2. 启动Ollama服务（Windows会自动后台运行，Linux需要手动）
+ollama serve
+
+# 3. 测试是否正常
+ollama run deepseek-r1:8b "hello"
+
+# 4. brain.py 会自动连接 localhost:11434 调用模型
+```
+
+**可选模型：**
+- `deepseek-r1:8b` — 推荐，8B参数，16GB显存够用
+- `qwen2.5:7b` — 通义千问，中文更好
+- `llama3.1:8b` — Meta出品，英文强
+
+### 安装后验证
+
+Windows跑完脚本后，在PowerShell里检查：
+```powershell
+go version          # Go 1.24+
+ollama --version    # ollama version x.x.x
+jq --version        # jq-1.7.1
+nmap --version      # Nmap 7.95
+subfinder -version  # v2.x.x
+nuclei -version     # v3.x.x
+```
+
+Linux跑完脚本后：
+```bash
+go version && ollama --version && jq --version && nmap --version
+subfinder -version && nuclei -version && interactsh-client -version
+```
+
+### 完整工具覆盖清单（修复后）
+
+安装脚本跑完后，应该达到：
+
+| 类别 | 数量 | 工具 |
+|------|------|------|
+| Go安全工具 | 28个 | subfinder, amass, httpx, nuclei, katana, ffuf, dalfox, gau, waybackurls, gospider, dnsx, naabu, interactsh-client, uncover, notify, alterx, pdtm, trufflehog, gitleaks, subjack, subzy, crlfuzz, hakrawler, gowitness, anew, gf, qsreplace, kiterunner |
+| Python安全工具 | 7个 | paramspider, arjun, wafw00f, corscanner, openredirex, linkfinder, uro |
+| Python AI/框架 | 7个 | ollama, rich, langgraph, langchain-ollama, Pillow, selenium, beautifulsoup4 |
+| 系统工具 | 4个 | Go, nmap, jq, Ollama |
+| 浏览器自动化 | 2个 | playwright + chromium |
+| **总计** | **48个** | Windows和Linux通用 |

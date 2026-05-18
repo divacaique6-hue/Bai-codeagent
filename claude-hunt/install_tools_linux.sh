@@ -114,7 +114,6 @@ install_system_deps() {
         "tesseract-ocr"         # 本地OCR引擎
         "tesseract-ocr-chi-sim" # 中文识别语言包
         "proxychains4"          # 代理链
-        "sqlmap"                # SQL注入
     )
     
     for pkg in "${PKGS[@]}"; do
@@ -252,8 +251,7 @@ install_python_tools() {
     
     PY_TOOLS=(
         "arjun"         # 参数发现
-        "dirsearch"     # 目录扫描
-        "sqlmap"        # SQL注入（注意：SRC实名情况慎用）
+        "dirsearch"     # 目录扫描（注意：对SRC慎用批量模式）
         "pyjwt"         # JWT 解析
         "requests"      # HTTP 库
         "pytesseract"   # 本地OCR（验证码识别备选）
@@ -262,6 +260,8 @@ install_python_tools() {
         "corsscanner"   # CORS检测
         "wafw00f"       # WAF识别
         "linkfinder"    # JS端点提取
+        # 注意：sqlmap 不自动安装 — SRC实名情况下不要用自动化注入工具
+        # SQL注入应该让AI手工构造payload，流量可控
     )
     
     for tool in "${PY_TOOLS[@]}"; do

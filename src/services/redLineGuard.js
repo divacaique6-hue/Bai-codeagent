@@ -8,10 +8,10 @@ const RED_LINES = [
   {
     id: "no-auto-scan",
     level: "critical",
-    rule: "不要使用自动化工具对实名SRC进行扫描",
-    description: "实名情况下不要用sqlmap等自动化工具，会产生大量异常请求被检测",
-    keywords: ["sqlmap", "自动扫描", "批量扫描", "awvs扫描", "nessus"],
-    suggestion: "手动测试，用Fiddler/Burp逐个接口测试"
+    rule: "不要使用自动化扫描工具对实名SRC目标扫描",
+    description: "实名情况下不要用sqlmap/awvs/nessus/dirsearch批量跑，WAF会记录IP+账号追溯到人。SQL注入让AI手工构造payload。",
+    keywords: ["sqlmap", "自动扫描", "批量扫描", "awvs扫描", "nessus", "批量注入"],
+    suggestion: "手动测试。SQL注入让Claude Code帮你手工构造union/盲注payload，一次一个请求，流量可控。"
   },
   {
     id: "no-crash-service",

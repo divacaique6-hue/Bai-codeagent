@@ -72,12 +72,54 @@ GO_TOOLS=(
     "github.com/lc/gau/v2/cmd/gau@latest"
     "github.com/hahwul/dalfox/v2@latest"
     "github.com/haccer/subjack@latest"
+    "github.com/projectdiscovery/interactsh/cmd/interactsh-client@latest"
+    "github.com/projectdiscovery/uncover/cmd/uncover@latest"
+    "github.com/projectdiscovery/notify/cmd/notify@latest"
+    "github.com/projectdiscovery/alterx/cmd/alterx@latest"
+    "github.com/projectdiscovery/pdtm/cmd/pdtm@latest"
+    "github.com/projectdiscovery/katana/cmd/katana@latest"
+    "github.com/projectdiscovery/dnsx/cmd/dnsx@latest"
+    "github.com/projectdiscovery/naabu/v2/cmd/naabu@latest"
+    "github.com/trufflesecurity/trufflehog/v3@latest"
+    "github.com/gitleaks/gitleaks/v8@latest"
+    "github.com/jaeles-project/gospider@latest"
+    "github.com/tomnomnom/anew@latest"
+    "github.com/tomnomnom/waybackurls@latest"
+    "github.com/tomnomnom/qsreplace@latest"
+    "github.com/tomnomnom/gf@latest"
+    "github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest"
+    "github.com/hakluke/hakrawler@latest"
+    "github.com/sensepost/gowitness@latest"
+    "github.com/assetnote/kiterunner/cmd/kr@latest"
+    "github.com/owasp-amass/amass/v4/...@master"
+    "github.com/s0md3v/uro@latest"
 )
 
 GO_TOOL_NAMES=(
     "gau"
     "dalfox"
     "subjack"
+    "interactsh-client"
+    "uncover"
+    "notify"
+    "alterx"
+    "pdtm"
+    "katana"
+    "dnsx"
+    "naabu"
+    "trufflehog"
+    "gitleaks"
+    "gospider"
+    "anew"
+    "waybackurls"
+    "qsreplace"
+    "gf"
+    "crlfuzz"
+    "hakrawler"
+    "gowitness"
+    "kiterunner"
+    "amass"
+    "uro"
 )
 
 for i in "${!GO_TOOLS[@]}"; do
@@ -169,6 +211,33 @@ if command -v nuclei &>/dev/null; then
     log_ok "Nuclei templates updated"
 fi
 
+# Install Python tools
+echo ""
+echo "[*] Installing Python tools (pip)..."
+
+PIP_TOOLS=(
+    "paramspider"
+    "arjun"
+    "wafw00f"
+    "corscanner"
+    "openredirex"
+    "uro"
+    "linkfinder"
+)
+
+for tool in "${PIP_TOOLS[@]}"; do
+    if pip3 show "$tool" &>/dev/null 2>&1 || command -v "$tool" &>/dev/null; then
+        log_ok "$tool already installed"
+    else
+        echo "    Installing $tool..."
+        if pip3 install "$tool" 2>/dev/null; then
+            log_ok "$tool installed successfully"
+        else
+            log_warn "$tool failed to install"
+        fi
+    fi
+done
+
 # Ensure Go bin is in PATH
 GOPATH="${GOPATH:-$HOME/go}"
 if [[ ":$PATH:" != *":$GOPATH/bin:"* ]]; then
@@ -183,7 +252,7 @@ echo "============================================="
 echo "[*] Installation Verification"
 echo "============================================="
 
-ALL_TOOLS=(subfinder httpx nuclei ffuf nmap amass gau dalfox subjack sisakulint)
+ALL_TOOLS=(subfinder httpx nuclei ffuf nmap amass gau dalfox subjack sisakulint interactsh-client uncover notify alterx pdtm katana dnsx naabu trufflehog gitleaks gospider anew waybackurls qsreplace gf crlfuzz hakrawler gowitness kiterunner uro)
 INSTALLED=0
 MISSING=0
 

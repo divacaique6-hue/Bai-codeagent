@@ -182,7 +182,7 @@ install_go_tools() {
     export PATH="$HOME/go/bin:/usr/local/go/bin:$PATH"
     export GOPATH="${GOPATH:-$HOME/go}"
     
-    # ProjectDiscovery 工具集
+    # ProjectDiscovery 工具集（完整）
     declare -A GO_TOOLS=(
         ["subfinder"]="github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"
         ["httpx"]="github.com/projectdiscovery/httpx/cmd/httpx@latest"
@@ -191,6 +191,10 @@ install_go_tools() {
         ["dnsx"]="github.com/projectdiscovery/dnsx/cmd/dnsx@latest"
         ["naabu"]="github.com/projectdiscovery/naabu/v2/cmd/naabu@latest"
         ["interactsh-client"]="github.com/projectdiscovery/interactsh/cmd/interactsh-client@latest"
+        ["uncover"]="github.com/projectdiscovery/uncover/cmd/uncover@latest"
+        ["notify"]="github.com/projectdiscovery/notify/cmd/notify@latest"
+        ["alterx"]="github.com/projectdiscovery/alterx/cmd/alterx@latest"
+        ["pdtm"]="github.com/projectdiscovery/pdtm/cmd/pdtm@latest"
     )
     
     # 其他 Go 工具
@@ -207,6 +211,10 @@ install_go_tools() {
         ["hakrawler"]="github.com/hakluke/hakrawler@latest"
         ["gowitness"]="github.com/sensepost/gowitness@latest"
         ["crlfuzz"]="github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest"
+        ["gospider"]="github.com/jaeles-project/gospider@latest"
+        ["amass"]="github.com/owasp-amass/amass/v4/...@master"
+        ["trufflehog"]="github.com/trufflesecurity/trufflehog/v3@latest"
+        ["gitleaks"]="github.com/gitleaks/gitleaks/v8@latest"
     )
     
     echo ""
@@ -250,16 +258,19 @@ install_python_tools() {
     fi
     
     PY_TOOLS=(
-        "arjun"         # 参数发现
+        "arjun"         # 参数发现（主动）
+        "paramspider"   # 参数发现（被动，从WebArchive挖）
         "dirsearch"     # 目录扫描（注意：对SRC慎用批量模式）
         "pyjwt"         # JWT 解析
         "requests"      # HTTP 库
         "pytesseract"   # 本地OCR（验证码识别备选）
         "Pillow"        # 图像处理
         "graphqlmap"    # GraphQL测试
-        "corsscanner"   # CORS检测
+        "corsscanner"   # CORS错配检测
         "wafw00f"       # WAF识别
         "linkfinder"    # JS端点提取
+        "openredirex"   # 开放重定向检测
+        "uro"           # URL去重（智能去相似URL）
         # 注意：sqlmap 不自动安装 — SRC实名情况下不要用自动化注入工具
         # SQL注入应该让AI手工构造payload，流量可控
     )
@@ -445,8 +456,8 @@ verify_installation() {
     # 确保 PATH 包含 go/bin
     export PATH="$HOME/go/bin:/usr/local/go/bin:$PATH"
     
-    CRITICAL_TOOLS=("subfinder" "httpx" "nuclei" "ffuf" "nmap" "katana" "gau" "dalfox" "kiterunner")
-    OPTIONAL_TOOLS=("dnsx" "naabu" "anew" "gf" "qsreplace" "arjun" "interactsh-client" "subjack" "gowitness" "waybackurls" "hakrawler" "crlfuzz" "wafw00f" "tesseract" "proxychains4")
+    CRITICAL_TOOLS=("subfinder" "httpx" "nuclei" "ffuf" "nmap" "katana" "gau" "dalfox" "interactsh-client" "paramspider" "arjun" "kiterunner")
+    OPTIONAL_TOOLS=("dnsx" "naabu" "anew" "gf" "qsreplace" "subjack" "gowitness" "waybackurls" "hakrawler" "crlfuzz" "wafw00f" "tesseract" "proxychains4" "amass" "gospider" "uncover" "notify" "alterx" "pdtm" "trufflehog" "gitleaks" "openredirex" "corscanner" "uro")
     
     INSTALLED=0
     MISSING=0

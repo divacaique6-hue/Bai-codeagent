@@ -1386,3 +1386,136 @@ claude-hunt/auto_agent/
     ├── verify.py             # 四证齐全
     └── report.py             # 报告生成
 ```
+
+
+
+---
+
+## HexStrike AI 集成（可选增强后端）
+
+### 什么是 HexStrike
+
+[HexStrike AI](https://github.com/0x4m4/hexstrike-ai) 是一个开源的 MCP 渗透测试框架，封装了 **150+ 安全工具**，提供：
+- 工具参数自动优化（AI选择最佳nmap/nuclei参数）
+- 智能缓存（相同目标不重复扫）
+- 错误恢复（命令失败自动重试）
+- 进程管理（并发控制+超时处理）
+
+### 跟 Auto-Hunt Agent 的关系
+
+```
+┌─────────────────────────────────┐
+│  Auto-Hunt Agent (AI决策层)     │  ← 你的 DeepSeek AI 做决策
+│  红线审查 / Session监控 / 日志  │
+│  痕迹分析 / 四证验证 / 报告    │
+└──────────────┬──────────────────┘
+               │ execute_command()
+               ▼
+┌─────────────────────────────────┐
+│  HexStrike Bridge (路由层)      │  ← hexstrike_bridge.py
+│  判断: 走API还是本地执行?       │
+└───────┬───────────────┬─────────┘
+        │               │
+        ▼               ▼
+┌──────────────┐  ┌──────────────┐
+│ HexStrike    │  │ 本地         │
+│ API Server   │  │ subprocess   │
+│ (150+工具    │  │ (直接执行)   │
+│  参数优化)   │  │              │
+└──────────────┘  └──────────────┘
+```
+
+**简单说：**
+- **有 HexStrike** → 工具命令走 API（更智能的参数+缓存+错误恢复）
+- **没有 HexStrike** → 直接本地执行（跟以前一样，完全不影响）
+- **HexStrike 中途掉线** → 自动降级为本地执行（不中断流程）
+
+### 三种使用方式
+
+| 方式 | 适合谁 | 配置 |
+|------|--------|------|
+| **A. 不用HexStrike** | 大多数人 | `hexstrike.enabled: false`（默认） |
+| **B. 本地跑HexStrike** | 想要参数优化+缓存 | 另开终端跑server，改enabled为true |
+| **C. 远程HexStrike** | 有专门的渗透VPS | 改server_url为远程IP |
+
+### 方式A: 不用 HexStrike（默认）
+
+什么都不用改，`config.yaml` 里 `hexstrike.enabled: false` 就行。所有命令直接本地执行。
+
+### 方式B: 本地跑 HexStrike
+
+```bash
+# 终端1: 启动 HexStrike server
+git clone https://github.com/0x4m4/hexstrike-ai.git
+cd hexstrike-ai
+python3 -m venv hexstrike-env
+source hexstrike-env/bin/activate
+pip3 install -r requirements.txt
+python3 hexstrike_server.py
+# 看到 "Server starting on 127.0.0.1:8888" 就OK
+
+# 终端2: 跑你的 Auto-Hunt Agent
+cd claude-hunt/auto_agent
+# 编辑 config.yaml:
+#   hexstrike:
+#     enabled: true
+#     server_url: "http://127.0.0.1:8888"
+python auto_hunt.py --target example.com --mode semi
+```
+
+### 方式C: 远程 HexStrike（渗透VPS）
+
+```yaml
+# config.yaml
+hexstrike:
+  enabled: true
+  server_url: "http://你的VPS-IP:8888"
+  timeout: 180        # 远程可能慢一点
+  fallback_to_local: true
+```
+
+### 配置说明
+
+```yaml
+hexstrike:
+  enabled: false              # true=启用, false=禁用(默认)
+  server_url: "http://127.0.0.1:8888"   # HexStrike server地址
+  timeout: 120                # 单条命令超时(秒)
+  fallback_to_local: true     # server掉线时自动降级为本地执行
+```
+
+### 自动路由逻辑
+
+当 `enabled: true` 且 server 在线时：
+
+1. Agent 要执行 `subfinder -d target.com`
+2. `hexstrike_bridge.py` 检查: subfinder 在工具映射表里吗？→ 是
+3. 通过 HTTP POST 发给 HexStrike API
+4. HexStrike 优化参数、执行、返回结果
+5. Agent 拿到结果继续下一步
+
+**如果 server 掉线：**
+1. API 调用失败
+2. Bridge 标记 `is_available = False`
+3. 自动 fallback 到本地 `subprocess.run()`
+4. 后续命令全部本地执行
+5. 日志记录 `[via: local]` 标记
+
+### HexStrike 带来的额外能力
+
+| 能力 | 没有HexStrike | 有HexStrike |
+|------|--------------|------------|
+| 工具参数 | 你自己写/AI建议 | HexStrike AI自动优化 |
+| 缓存 | 无（每次重新跑） | 智能缓存（相同目标不重复扫） |
+| 错误恢复 | 命令失败就失败 | 自动重试+降级策略 |
+| 进程管理 | 简单timeout | 完整进程监控+资源限制 |
+| 工具覆盖 | 28个Go+7个Python | 150+工具（含二进制/CTF/云安全） |
+| 浏览器Agent | 需要自己写playwright | HexStrike内置Chrome自动化 |
+
+### 注意事项
+
+1. **HexStrike 完全可选** — 不装不影响任何功能
+2. **安全性** — HexStrike server 默认只监听 127.0.0.1，不暴露到外网
+3. **资源占用** — HexStrike server 本身很轻量（Flask），但执行工具时会占资源
+4. **SRC红线** — 你的 Auto-Hunt Agent 的红线/限速/Session监控仍然生效，HexStrike 只是执行层
+5. **日志区分** — 日志中会标记每条命令是通过 `[via: hexstrike]` 还是 `[via: local]` 执行的

@@ -14,6 +14,24 @@ llm:
   max_tokens: 4096
   temperature: 0.3  # 低温度=更确定性的决策
 
+# ============================================================
+# HexStrike AI 后端（可选）
+# 如果你本地跑了 HexStrike server，开启后工具命令将通过
+# HexStrike API 执行（享受参数优化+智能缓存+错误恢复）
+# 没有 HexStrike 也能正常跑（自动降级为本地subprocess）
+# ============================================================
+hexstrike:
+  enabled: false              # 设为 true 启用 HexStrike 后端
+  server_url: "http://127.0.0.1:8888"   # HexStrike server 地址
+  timeout: 120                # 单次命令超时(秒)
+  fallback_to_local: true     # server掉线时自动降级为本地执行
+  # 使用方式:
+  #   1. git clone https://github.com/0x4m4/hexstrike-ai.git
+  #   2. cd hexstrike-ai && pip install -r requirements.txt
+  #   3. python3 hexstrike_server.py  (另开一个终端)
+  #   4. 这里 enabled 改为 true
+  #   5. 运行 auto_hunt.py，工具命令将通过 HexStrike API 执行
+
 # 安全限速
 rate_limit:
   requests_per_second: 3      # 有WAF时降到1
@@ -61,7 +79,7 @@ idor:
   cookie_b: ""                # 账号B的Cookie (用A的Cookie访问B的资源)
   # 配置后 Agent 会自动从URL中识别IDOR接口并交叉验证
 
-# 资产发现
+# 目标 + 资产发现
 target:
   domain: ""                  # 运行时输入
   company_name: ""            # 公司名(用于ICP备案关联/天眼查穿透)
@@ -71,3 +89,4 @@ target:
     - "*.gov.cn"
     - "*.edu.cn"
     - "payment.target.com"
+

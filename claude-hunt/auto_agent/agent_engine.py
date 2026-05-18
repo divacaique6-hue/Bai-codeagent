@@ -1,6 +1,10 @@
 """
 Agent Engine — 核心 AI 引擎
 负责：LLM调用、命令执行、输出解析、决策
+
+命令执行支持两种后端（自动选择）：
+  1. HexStrike API — 如果配置了且 server 在线，通过 API 调用（参数优化+缓存）
+  2. 本地 subprocess — 直接执行 shell 命令（默认/fallback）
 """
 
 import subprocess
@@ -19,6 +23,22 @@ class AgentEngine:
         self.rate_config = config.get('rate_limit', {})
         self.request_count = 0
         self.last_request_time = 0
+        
+        # 初始化 HexStrike 桥接（如果配置了）
+        self.hexstrike = None
+        if config.get('hexstrike', {}).get('enabled', False):
+            try:
+                from hexstrike_bridge import HexStrikeBridge
+                self.hexstrike = HexStrikeBridge(config)
+                hs_status = self.hexstrike.get_status()
+                if hs_status['is_available']:
+                    print(f"[+] HexStrike AI 后端已连接: {hs_status['server_url']}")
+                else:
+                    print(f"[!] HexStrike AI 配置已启用但 server 未在线，将使用本地执行")
+            except ImportError:
+                print("[!] hexstrike_bridge.py 未找到，将使用本地执行")
+            except Exception as e:
+                print(f"[!] HexStrike 初始化失败: {e}，将使用本地执行")
         
         # 初始化 LLM 客户端
         try:
@@ -67,7 +87,13 @@ class AgentEngine:
             return f"[LLM错误] {e}"
     
     def execute_command(self, command: str, timeout: int = 120) -> dict:
-        """执行系统命令（带限速）"""
+        """
+        执行系统命令（带限速 + HexStrike路由）
+        
+        执行优先级：
+        1. HexStrike API（如果启用且在线且命令匹配）
+        2. 本地 subprocess（默认/fallback）
+        """
         
         # 限速检查
         self._rate_limit()
@@ -85,6 +111,21 @@ class AgentEngine:
         if self.request_count > max_requests:
             return {"success": False, "output": f"[限制] 已达最大请求数 {max_requests}，停止执行", "returncode": -1}
         
+        # === HexStrike 路由 ===
+        if self.hexstrike and self.hexstrike.should_use_hexstrike(command):
+            result = self.hexstrike.execute_via_hexstrike(command, timeout)
+            
+            # 如果返回 fallback 标记，降级到本地执行
+            if result.get("fallback"):
+                pass  # 继续到下面的本地执行
+            else:
+                result["command"] = command
+                return result
+        
+        # === 本地执行 ===
+        return self._execute_local(command, timeout)
+    def _execute_local(self, command: str, timeout: int = 120) -> dict:
+        """本地 subprocess 执行命令"""
         try:
             result = subprocess.run(
                 command,
@@ -104,11 +145,12 @@ class AgentEngine:
                 "output": output[:5000],  # 限制输出长度
                 "returncode": result.returncode,
                 "command": command,
+                "via": "local",
             }
         except subprocess.TimeoutExpired:
-            return {"success": False, "output": f"[超时] 命令超过 {timeout}s", "returncode": -1, "command": command}
+            return {"success": False, "output": f"[超时] 命令超过 {timeout}s", "returncode": -1, "command": command, "via": "local"}
         except Exception as e:
-            return {"success": False, "output": f"[异常] {e}", "returncode": -1, "command": command}
+            return {"success": False, "output": f"[异常] {e}", "returncode": -1, "command": command, "via": "local"}
     
     def decide_next_action(self, phase: str, current_findings: dict, target: str) -> dict:
         """AI 决策下一步行动"""

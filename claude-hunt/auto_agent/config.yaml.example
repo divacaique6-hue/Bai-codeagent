@@ -1,0 +1,61 @@
+# ============================================================
+# Bai Auto-Hunt Agent 配置文件
+# 复制为 config.yaml 并填入你的 API Key
+# ============================================================
+
+# LLM 配置（支持 DeepSeek / OpenAI 兼容接口）
+llm:
+  provider: "deepseek"
+  api_key: "sk-你的DeepSeek-Key"
+  base_url: "https://api.deepseek.com/v1"
+  model: "deepseek-chat"
+  # 备选模型
+  # model: "deepseek-reasoner"  # 推理更强但更慢
+  max_tokens: 4096
+  temperature: 0.3  # 低温度=更确定性的决策
+
+# 目标配置
+target:
+  domain: ""  # 运行时输入
+  scope:
+    - "*.target.com"
+    # - "api.target.com"
+    # - "m.target.com"
+  out_of_scope:
+    - "*.gov.cn"
+    - "*.edu.cn"
+    - "payment.target.com"  # 支付系统不碰
+
+# 安全限速
+rate_limit:
+  requests_per_second: 3      # 有WAF时降到1
+  max_concurrent: 2
+  delay_between_phases: 5     # 每个阶段之间等待秒数
+  max_total_requests: 500     # 单次运行最大请求数（超过就停）
+
+# 红线规则
+redline:
+  check_interval: 10          # 每10步做一次红线审查
+  max_404_ratio: 0.8          # 404超过80%就停（可能被ban）
+  max_403_consecutive: 5      # 连续5个403就停
+  forbidden_keywords:         # 响应中出现这些就停
+    - "访问被拒绝"
+    - "IP已被封禁"
+    - "请完成人机验证"
+    - "滑块验证"
+  forbidden_paths:            # 绝对不碰的路径
+    - "/admin/delete"
+    - "/api/user/all"
+    - "/database/export"
+
+# 日志
+log:
+  desktop: true               # 输出到桌面
+  filename_prefix: "doing"    # doing_2025-06-18.md
+  verbose: true               # 记录详细命令输出
+
+# Agent 行为
+agent:
+  auto_mode_confirm_critical: true   # 全自动模式下，发现高危仍暂停确认
+  max_phase_time: 600         # 单阶段最长10分钟
+  trace_analysis_interval: 5  # 每5步做一次痕迹分析

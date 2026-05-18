@@ -1177,3 +1177,212 @@ agent:
 4. **日志留痕** — 所有操作全部记录，万一被误会有证据
 5. **高危暂停** — 即使全自动模式，发现高危也会暂停等你确认
 6. **需要渗透工具** — 确保先跑了 `install_tools_*.sh/ps1` 安装完所有工具
+
+
+
+---
+
+## 2025-06-18 新增6大功能模块
+
+### 更新后的完整运行流程
+
+```
+启动 → 选模式 → 输入目标 → 确认授权
+  │
+  ├── Phase 0: 前置侦察（新增）
+  │     ├── WAF检测 → 动态调整限速/UA
+  │     └── 资产关联发现 → FOFA/证书/AI推测子域名
+  │
+  ├── Phase 1: Recon（信息搜集）
+  │     subfinder → dnsx → httpx → gau → waybackurls
+  │     └── 每步Session监控（被踢→停，429→降速）
+  │
+  ├── Phase 2: Params（参数发现）
+  │     paramspider → gf(xss/ssrf) → arjun
+  │
+  ├── Phase 3: Hunt（漏洞检测）——已扩展
+  │     ├── nuclei(高危) → dalfox(XSS) → CORS → trufflehog
+  │     ├── 【新】并发竞态: AI识别支付/领券接口 → 并发测试
+  │     └── 【新】IDOR越权: 双账号Cookie交叉验证
+  │
+  ├── Phase 4: Validate（7问门控）
+  │
+  ├── Phase 5: Verify（四证齐全）
+  │
+  ├── 【新】提交前情报查重 → 避免重复提交
+  │
+  └── Phase 6: Report（生成报告）
+```
+
+---
+
+### 模块1: WAF 指纹自适应（waf_adapter.py）
+
+**功能：** 检测目标 WAF 类型，自动调整所有后续工具的限速和请求方式。
+
+| WAF类型 | 检测方式 | 自动调整 |
+|---------|---------|---------|
+| Cloudflare | wafw00f 检测 | 1 req/s + 浏览器模式 + 随机UA |
+| 阿里云WAF | wafw00f 检测 | 1 req/s + 带Cookie + 正常UA |
+| 宝塔WAF | wafw00f 检测 | 2 req/s + 可尝试大小写绕过 |
+| 腾讯云WAF | wafw00f 检测 | 1 req/s + payload需编码 |
+| 无WAF | wafw00f 检测 | 5 req/s + 正常模式 |
+
+**自动行为：**
+- 检测到 WAF 后，所有工具命令自动加上对应的限速参数
+- nuclei/httpx/ffuf/dalfox/katana 的 `-rate-limit` 参数会被动态覆盖
+- 随机 UA 池（5个不同浏览器UA轮换）
+
+---
+
+### 模块2: 账号状态监控（session_monitor.py）
+
+**功能：** 每N步检查你的测试账号 Session 是否还活着。
+
+**为什么需要：** SRC 测试最怕的是"账号被风控了自己不知道"，继续发请求等于白费+增加被追溯风险。
+
+**工作方式：**
+```
+每10步 → 用你的Cookie访问一个已知正常的URL
+  ├── 200 + 预期内容 → Session正常，继续
+  ├── 302/301 → 被踢到登录页，立即停止
+  ├── 403 连续3次 → IP可能被封，立即停止
+  ├── 429 → 触发限速，自动降速
+  └── 响应含"验证码/人机验证" → 风控触发，立即停止
+```
+
+**配置（config.yaml）：**
+```yaml
+session_monitor:
+  check_url: "https://target.com/api/user/profile"  # 登录后能访问的URL
+  cookie: "session=xxx; token=yyy"                   # 你的Cookie
+  expected_keyword: "username"                       # 正常页面应该有的关键词
+  check_interval: 10                                 # 每10步检查
+```
+
+---
+
+### 模块3: 资产关联发现（asset_discovery.py）
+
+**功能：** 从一个域名穿透发现所有关联资产（中国SRC特色）。
+
+**发现方式：**
+1. **FOFA 证书关联** — `cert="target.com"` 找同证书的其他域名
+2. **AI 推测子域名** — 根据公司名推测 oa/crm/erp/hr/test/staging
+3. **alterx 变异** — dev.target.com → dev2/staging/pre/uat.target.com
+4. **AI 优先级排序** — 分析哪些域名最可能有洞
+
+**配置：**
+```yaml
+target:
+  domain: "target.com"
+  company_name: "某某科技有限公司"  # 填公司名，AI会推测关联域名
+```
+
+---
+
+### 模块4: 并发竞态自动检测
+
+**功能：** AI 自动从 URL 列表中识别"可能有竞态"的接口，然后并发测试。
+
+**工作方式：**
+```
+1. AI分析所有URL → 找出 支付/提现/领券/签到/投票 相关接口
+2. 对每个目标接口并发发送5个请求
+3. 对比响应码：如果多个都是200 → 可能存在竞态
+4. 记录证据到日志
+```
+
+**触发条件：** URL中包含 withdraw/pay/coupon/sign/vote/redeem 等关键词时自动触发。
+
+**红线保护：** 只并发5次就停，不会反复测试。
+
+---
+
+### 模块5: IDOR 多账号对比
+
+**功能：** 配置两个测试账号的 Cookie，Agent 自动找 IDOR 接口并交叉验证。
+
+**工作方式：**
+```
+1. AI从URL中找包含 用户ID/订单号/数字参数 的接口
+2. 用 账号A 的Cookie访问 → 记录响应
+3. 用 账号B 的Cookie访问同一接口 → 记录响应
+4. 如果两个都是200 → 可能存在越权
+```
+
+**配置：**
+```yaml
+idor:
+  cookie_a: "session=user_a_session_id"   # 账号A
+  cookie_b: "session=user_b_session_id"   # 账号B
+```
+
+**红线保护：** 只用自己注册的2个账号，不遍历他人数据。
+
+---
+
+### 模块6: 历史漏洞情报查重（intel_checker.py）
+
+**功能：** 出报告前自动查重，避免提交已知漏洞被忽略/扣分。
+
+**工作方式：**
+```
+发现漏洞 → AI分析：
+  - 这种漏洞在该目标是否属于"已知问题"？
+  - 该CMS版本是否有已知CVE覆盖？
+  - 补天/漏洞盒子是否可能已有同类提交？
+  
+输出：
+  - 低风险 → 建议提交
+  - 中风险 → 建议先搜索平台确认
+  - 高风险 → 很可能重复，谨慎提交
+```
+
+---
+
+### 新增配置项汇总（config.yaml）
+
+```yaml
+# 账号状态监控
+session_monitor:
+  check_url: ""           # 登录后可访问的URL
+  cookie: ""              # 你的Cookie
+  expected_keyword: ""    # 预期关键词
+  check_interval: 10
+
+# IDOR 双账号
+idor:
+  cookie_a: ""            # 账号A Cookie
+  cookie_b: ""            # 账号B Cookie
+
+# 资产发现
+target:
+  company_name: ""        # 公司名（用于关联穿透）
+```
+
+---
+
+### 现在完整的文件结构
+
+```
+claude-hunt/auto_agent/
+├── auto_hunt.py              # 主入口
+├── agent_engine.py           # AI引擎(DeepSeek API)
+├── hunt_logger.py            # 桌面日志(doing_日期.md)
+├── redline_checker.py        # 红线审查
+├── trace_analyzer.py         # 痕迹分析
+├── waf_adapter.py            # 【新】WAF自适应
+├── session_monitor.py        # 【新】Session监控
+├── asset_discovery.py        # 【新】资产关联发现
+├── intel_checker.py          # 【新】情报查重
+├── config.yaml.example       # 配置模板
+└── phases/
+    ├── base.py               # 阶段基类
+    ├── recon.py              # 信息搜集
+    ├── params.py             # 参数发现
+    ├── hunt.py               # 漏洞检测【已扩展：竞态+IDOR】
+    ├── validate.py           # 7问验证
+    ├── verify.py             # 四证齐全
+    └── report.py             # 报告生成
+```

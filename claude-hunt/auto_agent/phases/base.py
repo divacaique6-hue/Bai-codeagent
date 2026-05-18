@@ -53,6 +53,21 @@ class BasePhase:
         # 记录日志
         self.logger.log_command(command, result, analysis)
         
+        # 记录响应到红线检查器（用于统计 403/404 比例）
+        if result.get("returncode") == 0:
+            self.redline.record_response(200, result.get("output", ""))
+        elif "403" in result.get("output", ""):
+            self.redline.record_response(403, result.get("output", ""))
+        elif "404" in result.get("output", ""):
+            self.redline.record_response(404, result.get("output", ""))
+        
+        # 红线即时检查（每步都查）
+        redline_result = self.redline.check({}, 0)
+        if redline_result["stop"]:
+            self.logger.log_event("REDLINE_STOP", redline_result["reason"])
+            console.print(f"    [bold red]🚨 红线触发: {redline_result['reason']}[/bold red]")
+            return
+        
         # 解析结果
         if result["success"] and result["output"] and parser and result_key:
             parsed = parser(result["output"])

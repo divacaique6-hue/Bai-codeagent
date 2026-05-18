@@ -1024,3 +1024,156 @@ subfinder -version && nuclei -version && interactsh-client -version
 | 系统工具 | 4个 | Go, nmap, jq, Ollama |
 | 浏览器自动化 | 2个 | playwright + chromium |
 | **总计** | **48个** | Windows和Linux通用 |
+
+
+
+---
+
+## AI Auto-Hunt Agent（自动化挖掘引擎）
+
+### 简介
+
+`claude-hunt/auto_agent/` 是一个独立的 AI Agent，用 DeepSeek API 驱动全链路 SRC 漏洞挖掘。不依赖 Claude Code 订阅，只需要一个 DeepSeek API Key。
+
+### 核心特性
+
+| 特性 | 说明 |
+|------|------|
+| **双模式** | 全自动(YOLO) / 半自动(SAFE)，启动时选择 |
+| **桌面日志** | 每次运行生成 `doing_日期.md` 在桌面，记录每步操作 |
+| **红线审查** | 每步自动检查是否越界（连续403/404比例/禁止路径） |
+| **痕迹分析** | 每N步 AI 分析已有数据，找出可挖线索 |
+| **7问验证** | 发现漏洞后 AI 自动做门控验证，过滤误报 |
+| **自动报告** | 验证通过的漏洞自动生成中国SRC格式报告到桌面 |
+| **限速保护** | 所有命令强制限速，不会打崩目标 |
+
+### 文件结构
+
+```
+claude-hunt/auto_agent/
+├── auto_hunt.py           # 主入口（启动→选模式→输入目标→跑全流程）
+├── agent_engine.py        # AI引擎（DeepSeek调用 + 命令执行 + 决策循环）
+├── hunt_logger.py         # 日志（桌面 doing_日期.md，markdown格式）
+├── redline_checker.py     # 红线审查（403/404/禁止路径/请求上限）
+├── trace_analyzer.py      # 痕迹分析（AI 找可挖线索 + 建议下一步）
+├── config.yaml.example    # 配置模板（复制为 config.yaml 填Key）
+└── phases/
+    ├── base.py            # 阶段基类（步骤执行+日志+红线检查）
+    ├── recon.py           # 信息搜集（subfinder→dnsx→httpx→gau→waybackurls）
+    ├── params.py          # 参数发现（paramspider→gf→arjun）
+    ├── hunt.py            # 漏洞检测（nuclei→dalfox→CORS→trufflehog）
+    ├── validate.py        # 漏洞验证（AI 7问门控）
+    └── report.py          # 报告生成（中国SRC格式→桌面md文件）
+```
+
+### 使用方法
+
+```bash
+# 1. 安装依赖
+pip install openai pyyaml rich
+
+# 2. 配置
+cd claude-hunt/auto_agent
+cp config.yaml.example config.yaml
+# 编辑 config.yaml 填入 DeepSeek API Key
+
+# 3. 运行（交互式）
+python auto_hunt.py
+
+# 4. 或直接指定参数
+python auto_hunt.py --target example.com --mode auto   # 全自动
+python auto_hunt.py --target example.com --mode semi   # 半自动
+```
+
+### 两种模式对比
+
+| | 全自动 (auto/YOLO) | 半自动 (semi/SAFE) |
+|---|---|---|
+| 阶段切换 | 自动进入下一阶段 | 每个阶段前问你要不要跑 |
+| 命令执行 | AI自己决定跑什么命令 | 每条命令执行前让你确认 |
+| AI额外探测 | 允许AI自主决定额外命令 | 不执行AI额外建议的命令 |
+| 发现高危漏洞 | **暂停让你确认**（安全兜底） | 暂停让你确认 |
+| 红线触发 | 立即自动停止 | 立即自动停止 |
+| 适合场景 | 挂着跑一晚上 | 第一次测新目标，边看边学 |
+
+### 运行流程
+
+```
+启动 → 选模式 → 输入目标 → 确认授权
+  │
+  ├── Phase 1: Recon（信息搜集）
+  │     subfinder → dnsx → httpx → gau → waybackurls
+  │     └── AI决策是否继续深入
+  │
+  ├── Phase 2: Params（参数发现）
+  │     paramspider → gf(xss/ssrf) → arjun(主动探测)
+  │
+  ├── Phase 3: Hunt（漏洞检测）
+  │     nuclei(高危) → dalfox(XSS) → CORS检测 → trufflehog(密钥)
+  │     └── AI决策额外攻击面
+  │
+  ├── Phase 4: Validate（漏洞验证）
+  │     对每个疑似漏洞做 AI 7问门控
+  │     └── 发现高危 → 暂停确认
+  │
+  └── Phase 5: Report（报告生成）
+        为每个确认漏洞生成 SRC 提交格式报告 → 保存桌面
+```
+
+### 日志输出（doing_日期.md）
+
+每次运行在桌面生成一个 Markdown 日志，内容包括：
+
+- 目标信息、模式、开始时间
+- 每条命令的执行记录（命令+输出+AI分析）
+- 红线审查结果（通过/警告/停止）
+- 痕迹分析（可挖线索+建议）
+- 最终汇总（子域名/URL/漏洞数量统计）
+
+### 红线审查规则
+
+| 触发条件 | 行为 |
+|----------|------|
+| 连续5个 403 响应 | 立即停止（可能被WAF封） |
+| 404 比例超过 95% | 立即停止（路径全错或被ban） |
+| 碰到禁止路径（/admin/delete等） | 立即停止 |
+| 总请求数超过 500 | 立即停止 |
+| 响应中出现"人机验证""IP封禁" | 记录警告 |
+
+### 痕迹分析
+
+每5步 AI 自动分析当前所有发现，输出：
+- **线索**: 哪些URL/参数/子域名看起来有洞
+- **建议**: 下一步最应该做什么
+- **置信度**: AI对当前线索的信心程度
+
+### 配置说明（config.yaml）
+
+```yaml
+# 必填
+llm:
+  api_key: "sk-你的DeepSeek-Key"   # DeepSeek API Key
+  base_url: "https://api.deepseek.com/v1"
+  model: "deepseek-chat"
+
+# 可选调整
+rate_limit:
+  requests_per_second: 3    # 有WAF降到1
+  max_total_requests: 500   # 单次最大请求数
+
+redline:
+  max_403_consecutive: 5    # 连续403阈值
+  check_interval: 10        # 每N步审查一次
+
+agent:
+  trace_analysis_interval: 5  # 每N步做痕迹分析
+```
+
+### 注意事项
+
+1. **必须有授权** — 启动时会强制确认你有 SRC 授权
+2. **不用 sqlmap** — AI 手工构造注入 payload，每次只发1个请求
+3. **限速强制** — 所有工具命令都带限速参数，不可绕过
+4. **日志留痕** — 所有操作全部记录，万一被误会有证据
+5. **高危暂停** — 即使全自动模式，发现高危也会暂停等你确认
+6. **需要渗透工具** — 确保先跑了 `install_tools_*.sh/ps1` 安装完所有工具

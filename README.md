@@ -5,6 +5,281 @@
 ## 环境要求
 
 - Node.js 18+ (Web面板)
+- Python 3.8+ (RedOps + 渗透工具)
+- Go 1.20+ (安全工具)
+- Claude Code (自动化挖掘，需 Claude Pro/Max)
+
+---
+
+## 自带渗透工具一览
+
+### 信息搜集
+| 工具 | 说明 | 用法 |
+|------|------|------|
+| subfinder | 子域名枚举 | `subfinder -d target.com` |
+| httpx | HTTP存活探测+指纹 | `httpx -l subs.txt -silent -tech-detect` |
+| katana | 爬虫（JS渲染友好） | `katana -u target.com -d 3` |
+| gau | 历史URL搜集 | `echo target.com \| gau` |
+| naabu | 端口扫描（快） | `naabu -host target.com -top-ports 1000` |
+| kiterunner | 隐藏API发现 | `kr scan target.com -w routes.kite` |
+| waybackurls | Wayback历史URL | `echo target.com \| waybackurls` |
+| gowitness | 批量网页截图 | `gowitness file -f urls.txt` |
+| wafw00f | WAF识别 | `wafw00f target.com` |
+
+### 漏洞检测
+| 工具 | 说明 | 用法 |
+|------|------|------|
+| nuclei | 模板化漏洞扫描 | `nuclei -u target.com -severity high,critical` |
+| dalfox | XSS自动检测 | `dalfox pipe < urls_with_params.txt` |
+| crlfuzz | CRLF注入检测 | `crlfuzz -u target.com` |
+| subjack | 子域名接管 | `subjack -w subs.txt -t 20` |
+
+### 业务逻辑漏洞（自写Python工具）
+| 工具 | 文件 | 说明 |
+|------|------|------|
+| **并发竞态测试** | `race_tester.py` | 并发发请求检测提现/领券/签到竞态 |
+| **越权自动对比** | `idor_diff.py` | 两账号对比检测IDOR/垂直越权/未授权 |
+| **JWT攻击** | `jwt_attack.py` | alg:none/弱密钥爆破/payload篡改 |
+| **JS信息提取** | `js_extractor.py` | 从JS提取API端点/密钥/Token |
+| **截图识图** | `screenshot_ocr.py` | 验证码识别/页面分析/对比截图 |
+| **UI控制** | `ui_controller.py` | 鼠标键盘自动化/滑块验证码/截屏 |
+| **浏览器自动化** | `browser_auto.py` | Playwright自动登录/表单/Cookie提取/请求拦截 |
+
+---
+
+## UI 控制 / 鼠标键盘自动化
+
+### ui_controller.py（桌面GUI控制）
+
+依赖：`pip install pyautogui pillow`
+
+```bash
+# 全屏截图
+python3 claude-hunt/tools/ui_controller.py --screenshot full -o screen.png
+
+# 点击坐标
+python3 claude-hunt/tools/ui_controller.py --click 500 300
+
+# 输入文字
+python3 claude-hunt/tools/ui_controller.py --type "admin123"
+
+# 拖拽滑块验证码（从x=200拖到x=500）
+python3 claude-hunt/tools/ui_controller.py --drag 200 300 500 300 --duration 0.5
+
+# 找到图片并点击
+python3 claude-hunt/tools/ui_controller.py --find-and-click login_button.png
+
+# 组合键
+python3 claude-hunt/tools/ui_controller.py --hotkey ctrl a
+
+# 获取鼠标位置
+python3 claude-hunt/tools/ui_controller.py --position
+
+# 滚动
+python3 claude-hunt/tools/ui_controller.py --scroll -3
+```
+
+### browser_auto.py（无头浏览器自动化）
+
+依赖：`pip install playwright && playwright install chromium`
+
+```bash
+# 访问并截图
+python3 claude-hunt/tools/browser_auto.py --url "https://target.com" --screenshot page.png
+
+# 自动登录
+python3 claude-hunt/tools/browser_auto.py --url "https://target.com/login" \
+  --fill "#username=admin" --fill "#password=123456" \
+  --click "button[type=submit]" --wait 3 --screenshot logged_in.png
+
+# 提取所有表单（发现注入点）
+python3 claude-hunt/tools/browser_auto.py --url "https://target.com" --extract forms
+
+# 提取Cookie/Token
+python3 claude-hunt/tools/browser_auto.py --url "https://target.com" --extract cookies
+
+# 提取localStorage
+python3 claude-hunt/tools/browser_auto.py --url "https://target.com" --extract storage
+
+# 拦截所有API请求
+python3 claude-hunt/tools/browser_auto.py --url "https://target.com" --intercept -o api.json
+
+# 模拟手机访问
+python3 claude-hunt/tools/browser_auto.py --url "https://target.com" --mobile --screenshot m.png
+
+# 批量截图
+python3 claude-hunt/tools/browser_auto.py --url-file urls.txt --screenshot-dir ./shots/
+
+# 通过代理（配合Fiddler/Burp）
+python3 claude-hunt/tools/browser_auto.py --url "https://target.com" --proxy http://127.0.0.1:8888
+```
+
+---
+
+## 业务逻辑漏洞工具详细用法
+
+### race_tester.py — 并发竞态测试
+
+```bash
+# 并发20次相同提现请求
+python3 claude-hunt/tools/race_tester.py \
+  --url "https://target.com/api/withdraw" \
+  --method POST \
+  --headers '{"Cookie":"session=xxx","Content-Type":"application/json"}' \
+  --body '{"amount":1}' \
+  --threads 20
+
+# 不同金额并发（绕过相同金额检测）
+python3 claude-hunt/tools/race_tester.py \
+  --url "https://target.com/api/withdraw" \
+  --method POST \
+  --headers '{"Cookie":"session=xxx"}' \
+  --body-template '{"amount":{FUZZ}}' \
+  --fuzz-values "1,2,3,5,10"
+```
+
+### idor_diff.py — 越权对比
+
+```bash
+# 水平越权：A用户的Cookie访问B用户的数据
+python3 claude-hunt/tools/idor_diff.py \
+  --url "https://target.com/api/user/{ID}/orders" \
+  --ids "123,456,789" \
+  --auth-a "Cookie: session=userA" \
+  --auth-b "Cookie: session=userB" \
+  --own-id 123
+
+# 垂直越权：普通用户访问管理接口
+python3 claude-hunt/tools/idor_diff.py \
+  --url-file admin_endpoints.txt \
+  --auth-a "Bearer admin_token" \
+  --auth-b "Bearer user_token" \
+  --mode vertical
+
+# 未授权访问测试
+python3 claude-hunt/tools/idor_diff.py \
+  --url "https://target.com/api/admin/users" \
+  --auth-a "Cookie: session=xxx" \
+  --mode no-auth
+```
+
+### jwt_attack.py — JWT攻击
+
+```bash
+# 解析JWT查看内容
+python3 claude-hunt/tools/jwt_attack.py --token "eyJ..." --decode
+
+# 全量攻击（none绕过+弱密钥爆破+篡改）
+python3 claude-hunt/tools/jwt_attack.py --token "eyJ..." --all
+
+# 验证伪造token是否被接受
+python3 claude-hunt/tools/jwt_attack.py --token "eyJ..." --all \
+  --verify-url "https://target.com/api/me"
+```
+
+### js_extractor.py — JS敏感信息提取
+
+```bash
+# 从网站自动发现并分析所有JS
+python3 claude-hunt/tools/js_extractor.py --crawl "https://target.com"
+
+# 分析指定JS文件
+python3 claude-hunt/tools/js_extractor.py --url "https://target.com/static/app.js"
+```
+
+### screenshot_ocr.py — 截图识图
+
+```bash
+# 识别验证码
+python3 claude-hunt/tools/screenshot_ocr.py --captcha captcha.png
+
+# 分析页面截图
+python3 claude-hunt/tools/screenshot_ocr.py --analyze page.png
+
+# 对比两张截图（越权前后）
+python3 claude-hunt/tools/screenshot_ocr.py --diff before.png after.png
+```
+
+配置视觉AI（创建 `~/.config/screenshot_ocr.json`）：
+```json
+{
+  "provider": "qwen",
+  "api_key": "你的通义千问key",
+  "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "model": "qwen-vl-plus"
+}
+```
+
+---
+
+## 安装所有工具
+
+```bash
+# Linux/Kali/WSL
+chmod +x claude-hunt/install_tools_linux.sh
+sudo bash claude-hunt/install_tools_linux.sh
+
+# Python 工具（UI控制 + 浏览器）
+pip install pyautogui pillow playwright
+playwright install chromium
+```
+
+---
+
+## MCP Server 配置
+
+编辑 `~/.claude/settings.json`：
+
+```json
+{
+  "mcpServers": {
+    "fiddler": {
+      "command": "python3",
+      "args": ["C:/你的路径/Bai-codeagent/claude-hunt/mcp/fiddler-mcp/server.py"],
+      "env": {"FIDDLER_EXPORT_DIR": "C:/Users/你/Documents/Fiddler2/Captures"}
+    },
+    "redops": {
+      "command": "python3",
+      "args": ["C:/你的路径/Bai-codeagent/claude-hunt/mcp/redops-mcp/server.py"],
+      "env": {"REDOPS_URL": "http://localhost:8000"}
+    },
+    "burp": {
+      "command": "npx",
+      "args": ["-y", "@anthropic/burp-mcp-server"],
+      "env": {"BURP_API_KEY": "你的Key", "BURP_URL": "http://localhost:1337"}
+    }
+  }
+}
+```
+
+---
+
+## Claude Code 命令
+
+```
+/recon target.com              信息搜集
+/hunt target.com               漏洞挖掘
+/autopilot target.com --normal 全自动
+/validate                      验证漏洞
+/report                        生成报告
+/pickup target.com             继续上次
+/surface target.com            排序攻击面
+/intel target.com              查CVE
+/chain                         漏洞链
+/scope target.com              检查授权范围
+/arsenal                       查看工具
+```
+
+---
+
+## 注意事项
+
+- 只在获得授权的情况下使用
+- 遵守法律法规
+- SRC测试不要影响线上业务
+- 不对未授权目标发起扫描
+
+- Node.js 18+ (Web面板)
 - Python 3.8+ (RedOps + MCP Server)
 - Go 1.20+ (安全工具，可选)
 - Claude Code (自动化挖掘，需要 Claude Pro/Max 订阅)

@@ -21,6 +21,10 @@ from agent_engine import AgentEngine
 from hunt_logger import HuntLogger
 from redline_checker import RedlineChecker
 from trace_analyzer import TraceAnalyzer
+from waf_adapter import WAFAdapter
+from session_monitor import SessionMonitor
+from asset_discovery import AssetDiscovery
+from intel_checker import IntelChecker
 from phases.recon import ReconPhase
 from phases.params import ParamPhase
 from phases.hunt import HuntPhase
@@ -126,8 +130,40 @@ def run_agent(target, mode, config):
     engine = AgentEngine(config)
     redline = RedlineChecker(config)
     tracer = TraceAnalyzer(engine)
+    waf = WAFAdapter(engine, logger)
+    session_mon = SessionMonitor(engine, logger, config)
+    asset_disc = AssetDiscovery(engine, logger)
+    intel = IntelChecker(engine, logger)
     
-    # 初始化各阶段
+    # 写日志头
+    logger.write_header(target, mode)
+    
+    console.print(f"\n[bold green]开始挖掘: {target} (模式: {mode})[/bold green]\n")
+    
+    # ═══ Phase 0: WAF 检测 + 资产发现 ═══
+    console.print(f"\n{'='*50}")
+    console.print("[bold cyan]Phase 0: 前置侦察[/bold cyan]")
+    console.print(f"{'='*50}\n")
+    
+    # WAF 检测 → 动态调整限速
+    waf_result = waf.detect(target)
+    console.print(f"  WAF: {waf_result['strategy']['name']} → {waf_result['strategy']['requests_per_second']} req/s")
+    console.print(f"  提示: {waf_result['tips']}")
+    
+    # 更新 engine 的限速
+    engine.config.setdefault('rate_limit', {})['requests_per_second'] = waf.get_rate_limit()
+    
+    # 资产关联发现（可选）
+    company_name = config.get('target', {}).get('company_name', '')
+    if mode == "semi":
+        if Confirm.ask("执行资产关联发现？(推荐)", default=True):
+            asset_result = asset_disc.discover(target, company_name)
+            if asset_result["domains"]:
+                console.print(f"  [green]发现 {len(asset_result['domains'])} 个关联域名[/green]")
+    elif mode == "auto":
+        asset_result = asset_disc.discover(target, company_name)
+    
+    # ═══ 主流程阶段 ═══
     phases = [
         ReconPhase(engine, logger, redline, tracer, mode),
         ParamPhase(engine, logger, redline, tracer, mode),
@@ -136,11 +172,6 @@ def run_agent(target, mode, config):
         VerifyPhase(engine, logger, redline, tracer, mode),
         ReportPhase(engine, logger, redline, tracer, mode),
     ]
-    
-    # 写日志头
-    logger.write_header(target, mode)
-    
-    console.print(f"\n[bold green]开始挖掘: {target} (模式: {mode})[/bold green]\n")
     
     # 全局发现汇总
     findings = {
@@ -180,6 +211,19 @@ def run_agent(target, mode, config):
             
             step_count += 1
             
+            # Session 状态监控（每阶段后检查）
+            if session_mon.should_check(step_count):
+                sess_result = session_mon.check(step_count)
+                logger.log_redline_check({"stop": not sess_result["alive"], "warnings": [sess_result["reason"]]})
+                if not sess_result["alive"]:
+                    console.print(f"\n[bold red]⚠️ Session异常: {sess_result['reason']}[/bold red]")
+                    logger.log_event("REDLINE_STOP", sess_result["reason"])
+                    break
+                elif sess_result["action"] == "slow_down":
+                    # 动态降速
+                    engine.config['rate_limit']['requests_per_second'] = max(1, waf.get_rate_limit() - 1)
+                    console.print(f"  [yellow]⚠ 降速到 {engine.config['rate_limit']['requests_per_second']} req/s[/yellow]")
+            
             # 红线审查（每个阶段结束后）
             redline_result = redline.check(findings, step_count)
             if redline_result["stop"]:
@@ -194,13 +238,22 @@ def run_agent(target, mode, config):
                 console.print(f"\n[magenta]📍 痕迹分析: {trace_result['summary']}[/magenta]")
             
             logger.log_phase_end(phase_name, phase_findings)
-            
+    
     except KeyboardInterrupt:
         console.print("\n[yellow]用户中断 (Ctrl+C)[/yellow]")
         logger.log_event("USER_INTERRUPT", "Ctrl+C")
     except Exception as e:
         console.print(f"\n[red]异常: {e}[/red]")
         logger.log_event("ERROR", str(e))
+    
+    # ═══ 提交前情报查重 ═══
+    vulns = [v for v in findings.get('vulnerabilities', []) if v.get('verified_4proof')]
+    if vulns:
+        console.print(f"\n{'='*50}")
+        console.print("[bold cyan]提交前查重[/bold cyan]")
+        console.print(f"{'='*50}\n")
+        checked_vulns = intel.pre_submission_check(target, vulns)
+        findings['vulnerabilities'] = checked_vulns
     
     # 写日志尾
     logger.write_footer(findings)

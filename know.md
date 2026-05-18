@@ -587,3 +587,132 @@ curl "http://target.com/page?id=1' UNION SELECT 1,database(),3--" -H "Cookie: se
 ```
 
 让 Claude Code 帮你构造这些 payload，它比 sqlmap 聪明——能根据报错信息动态调整注入方式，而且每次只发1个请求。
+
+
+
+---
+
+## 整合的两个开源项目介绍
+
+### 1. RedOps Agent（redops/）
+
+来源：`baianquanzu/RedOps-Agent`
+
+**是什么：** 基于 LLM 的智能渗透测试 Agent 框架，通过自然语言对话驱动渗透测试。
+
+**核心功能：**
+- **LLM驱动决策** — 支持 DeepSeek / OpenAI / Claude / 通义千问，用中文对话下达渗透指令
+- **技能注册系统** — 动态加载渗透技能模块，可自定义扩展
+- **Nuclei 集成** — 调用 Nuclei 进行模板化漏洞扫描
+- **FOFA 资产搜索** — 集成 FOFA API 快速发现目标资产
+- **系统命令执行** — 集成 Kali 工具链（nmap/dig/curl等）
+- **JS逆向分析** — 自动分析页面 JavaScript 提取敏感信息
+- **上下文记忆** — 持久化会话，支持多轮对话和任务连续性
+- **Web管理界面** — 浏览器访问 localhost:8000 对话式操作
+- **报告自动生成** — HTML 格式渗透测试报告
+
+**启动方式：**
+```bash
+cd redops
+pip install -r requirements.txt
+python main.py
+# 浏览器访问 http://localhost:8000
+```
+
+**配置 LLM（redops/app/core/config.yaml）：**
+```yaml
+llm:
+  provider: "deepseek"      # deepseek/openai/anthropic/qwen
+  api_key: "你的key"
+  base_url: "https://api.deepseek.com/v1"
+  model: "deepseek-chat"
+```
+
+**对话示例：**
+```
+"请对 192.168.1.1 进行端口扫描"
+"使用Nuclei扫描 example.com 的漏洞"
+"查找 example.com 的子域名"
+"对目标进行SQL注入测试"
+"用FOFA搜索 domain='target.com' && title='后台'"
+```
+
+**适合场景：** 不想用 Claude Code 订阅的时候，用 DeepSeek（便宜）驱动渗透测试。
+
+---
+
+### 2. claude-bug-bounty（claude-hunt/）
+
+来源：`shuvonsec/claude-bug-bounty`（1.8k star）
+
+**是什么：** 专为 Claude Code 设计的全自动 Bug Bounty 猎手框架，覆盖从信息搜集到报告生成的完整流程。
+
+**核心功能：**
+
+**8个AI Agent：**
+| Agent | 功能 |
+|-------|------|
+| recon-agent | 子域名+活主机+URL发现 |
+| report-writer | 生成提交级报告（H1/Bugcrowd/补天格式） |
+| validator | 7问门控，杀死弱发现 |
+| chain-builder | 发现一个洞后自动查找关联漏洞链 |
+| autopilot | 全自动挖洞循环（scope→recon→hunt→validate→report） |
+| recon-ranker | 排序攻击面，优先测高价值目标 |
+| web3-auditor | 智能合约审计（10种漏洞类） |
+| token-auditor | Meme币/Token rug pull检测 |
+
+**22个 Slash Commands：**
+- `/recon` `/hunt` `/validate` `/report` — 核心四命令
+- `/autopilot` — 全自动模式（--paranoid/--normal/--yolo三种检查点）
+- `/pickup` — 继续上次未完成的目标
+- `/surface` — 排序攻击面
+- `/intel` — CVE情报查询
+- `/chain` — 漏洞链发现
+- `/scope` — 授权范围检查
+- `/remember` — 保存到跨会话记忆
+- `/secrets-hunt` — JS/Git泄露扫描
+- `/takeover` — 子域名接管
+- `/cloud-recon` — 云资产发现
+- `/bypass-403` — 绕过403
+- `/scan-cves` — Nuclei CVE扫描
+- `/arsenal` — 工具状态检查
+
+**20种Web2漏洞类覆盖：**
+IDOR、Auth Bypass、XSS、SSRF、业务逻辑、Race Condition、SQL注入、OAuth、文件上传、GraphQL、LLM/AI、API Misconfig、Account Takeover、SSTI、子域名接管、Cloud/Infra、HTTP Smuggling、Cache Poisoning、MFA Bypass、SAML/SSO
+
+**记忆系统：**
+- `hunt-memory/patterns.jsonl` — 成功技术跨目标学习
+- `hunt-memory/audit.jsonl` — 请求审计日志
+- 自动轮换（10MB上限，保留3个备份）
+- 每次会话结束自动记录
+
+**MCP集成：**
+- Burp Suite MCP — AI直接读取浏览器抓包流量
+- HackerOne MCP — 查询已披露报告和赏金项目
+- Fiddler MCP（我们自己加的） — 分析Fiddler SAZ抓包
+- RedOps MCP（我们自己加的） — 调用RedOps执行命令
+
+**安全保护：**
+- Scope Checker — 每个URL发请求前都检查是否在授权范围
+- 审计日志 — 每个请求都记录到 audit.jsonl
+- 安全方法保护 — PUT/DELETE/PATCH 需要人工确认
+- 断路器 — 连续5次403/429自动停止
+- 速率限制 — 测试1req/s，信息搜集10req/s
+
+**适合场景：** 有 Claude Pro/Max 订阅，想全自动挖洞的时候用。AI自动跑全流程，你只需要最后确认报告。
+
+---
+
+### 两个项目的定位区别
+
+| | RedOps Agent | claude-hunt |
+|---|---|---|
+| **驱动模型** | DeepSeek/OpenAI/Qwen（便宜） | Claude Code（需Pro订阅） |
+| **交互方式** | Web对话界面 | 终端命令行 |
+| **自动化程度** | 对话式，你说一步它做一步 | /autopilot 全自动 |
+| **记忆系统** | 会话级记忆 | 跨会话持久化 |
+| **安全保护** | 基础 | 完整（scope checker+audit+断路器） |
+| **适合谁** | 不想付Claude订阅的 | 想全自动最高效率的 |
+| **启动** | `python redops/main.py` | `claude` → `/autopilot` |
+
+**最佳组合：** Claude Code 做决策 + 通过 RedOps MCP 调用 RedOps 执行命令（省Claude token）。

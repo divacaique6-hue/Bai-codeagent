@@ -173,9 +173,27 @@ install_golang() {
     fi
 }
 
-# ── Step 3: 安装 Go 安全工具 (ProjectDiscovery 全家桶) ──────────────────────
+# ── Step 3: 安装 Ollama（本地 LLM 运行时 — brain.py 核心依赖）────────────────
+install_ollama() {
+    log_info "Step 3: 安装 Ollama (本地LLM引擎)..."
+    
+    if command -v ollama &>/dev/null; then
+        log_ok "Ollama 已安装: $(ollama --version 2>&1 | head -1)"
+        return 0
+    fi
+    
+    log_info "  下载并安装 Ollama..."
+    if curl -fsSL https://ollama.com/install.sh | sh 2>/dev/null; then
+        log_ok "Ollama 安装成功"
+        log_warn "提示: 安装后运行 'ollama pull deepseek-r1:8b' 下载模型"
+    else
+        log_warn "Ollama 安装失败，手动安装: curl -fsSL https://ollama.com/install.sh | sh"
+    fi
+}
+
+# ── Step 4: 安装 Go 安全工具 (ProjectDiscovery 全家桶) ──────────────────────
 install_go_tools() {
-    log_info "Step 3: 安装 Go 安全工具 (ProjectDiscovery)..."
+    log_info "Step 4: 安装 Go 安全工具 (ProjectDiscovery)..."
     
     setup_go_proxy
     
@@ -215,6 +233,7 @@ install_go_tools() {
         ["amass"]="github.com/owasp-amass/amass/v4/...@master"
         ["trufflehog"]="github.com/trufflesecurity/trufflehog/v3@latest"
         ["gitleaks"]="github.com/gitleaks/gitleaks/v8@latest"
+        ["subzy"]="github.com/PentestPad/subzy@latest"
     )
     
     echo ""
@@ -248,9 +267,9 @@ install_go_tools() {
     done
 }
 
-# ── Step 4: 安装 Python 工具 ────────────────────────────────────────────────
+# ── Step 5: 安装 Python 工具 ────────────────────────────────────────────────
 install_python_tools() {
-    log_info "Step 4: 安装 Python 工具..."
+    log_info "Step 5: 安装 Python 工具..."
     
     # 确保 pip 可用
     if ! command -v pip3 &>/dev/null; then
@@ -258,19 +277,26 @@ install_python_tools() {
     fi
     
     PY_TOOLS=(
-        "arjun"         # 参数发现（主动）
-        "paramspider"   # 参数发现（被动，从WebArchive挖）
-        "dirsearch"     # 目录扫描（注意：对SRC慎用批量模式）
-        "pyjwt"         # JWT 解析
-        "requests"      # HTTP 库
-        "pytesseract"   # 本地OCR（验证码识别备选）
-        "Pillow"        # 图像处理
-        "graphqlmap"    # GraphQL测试
-        "corsscanner"   # CORS错配检测
-        "wafw00f"       # WAF识别
-        "linkfinder"    # JS端点提取
-        "openredirex"   # 开放重定向检测
-        "uro"           # URL去重（智能去相似URL）
+        "arjun"             # 参数发现（主动）
+        "paramspider"       # 参数发现（被动，从WebArchive挖）
+        "dirsearch"         # 目录扫描（注意：对SRC慎用批量模式）
+        "pyjwt"             # JWT 解析
+        "requests"          # HTTP 库
+        "pytesseract"       # 本地OCR（验证码识别备选）
+        "Pillow"            # 图像处理
+        "graphqlmap"        # GraphQL测试
+        "corsscanner"       # CORS错配检测
+        "wafw00f"           # WAF识别
+        "linkfinder"        # JS端点提取
+        "openredirex"       # 开放重定向检测
+        "uro"               # URL去重（智能去相似URL）
+        "beautifulsoup4"    # HTML解析
+        "selenium"          # 浏览器自动化（Playwright备选）
+        "rich"              # 终端美化输出
+        "ollama"            # Ollama Python SDK（brain.py核心依赖）
+        "langgraph"         # LLM Agent图引擎
+        "langchain-ollama"  # LangChain Ollama集成
+        "playwright"        # 无头浏览器自动化
         # 注意：sqlmap 不自动安装 — SRC实名情况下不要用自动化注入工具
         # SQL注入应该让AI手工构造payload，流量可控
     )
@@ -284,11 +310,17 @@ install_python_tools() {
             pip3 install "$tool" 2>/dev/null && log_ok "  $tool 安装成功" || log_warn "  $tool 安装失败"
         fi
     done
+    
+    # 安装 Playwright 浏览器
+    if command -v playwright &>/dev/null || pip3 show playwright &>/dev/null 2>&1; then
+        log_info "  安装 Playwright Chromium..."
+        playwright install chromium 2>/dev/null && log_ok "  Playwright Chromium 安装成功" || log_warn "  Playwright 浏览器安装失败，手动运行: playwright install chromium"
+    fi
 }
 
-# ── Step 5: 更新 Nuclei 模板 ────────────────────────────────────────────────
+# ── Step 6: 更新 Nuclei 模板 ────────────────────────────────────────────────
 update_nuclei_templates() {
-    log_info "Step 5: 更新 Nuclei 模板..."
+    log_info "Step 6: 更新 Nuclei 模板..."
     
     if command -v nuclei &>/dev/null; then
         nuclei -update-templates 2>/dev/null && log_ok "Nuclei 模板已更新" || log_warn "模板更新失败，手动运行: nuclei -update-templates"
@@ -306,9 +338,9 @@ update_nuclei_templates() {
     fi
 }
 
-# ── Step 6: 配置 gf patterns ────────────────────────────────────────────────
+# ── Step 7: 配置 gf patterns ────────────────────────────────────────────────
 setup_gf_patterns() {
-    log_info "Step 6: 配置 gf patterns (URL分类规则)..."
+    log_info "Step 7: 配置 gf patterns (URL分类规则)..."
     
     GF_DIR="$HOME/.gf"
     if [ -d "$GF_DIR" ] && [ "$(ls -A "$GF_DIR" 2>/dev/null)" ]; then
@@ -329,9 +361,9 @@ setup_gf_patterns() {
     fi
 }
 
-# ── Step 7: 下载 Wordlists ──────────────────────────────────────────────────
+# ── Step 8: 下载 Wordlists ──────────────────────────────────────────────────
 setup_wordlists() {
-    log_info "Step 7: 下载 Wordlists (字典)..."
+    log_info "Step 8: 下载 Wordlists (字典)..."
     
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
     WORDLIST_DIR="$SCRIPT_DIR/tools/wordlists"
@@ -445,19 +477,19 @@ EOF
     fi
 }
 
-# ── Step 8: 验证安装结果 ────────────────────────────────────────────────────
+# ── Step 9: 验证安装结果 ────────────────────────────────────────────────────
 verify_installation() {
     echo ""
     echo "============================================="
-    log_info "Step 8: 验证安装结果"
+    log_info "Step 9: 验证安装结果"
     echo "============================================="
     echo ""
     
     # 确保 PATH 包含 go/bin
     export PATH="$HOME/go/bin:/usr/local/go/bin:$PATH"
     
-    CRITICAL_TOOLS=("subfinder" "httpx" "nuclei" "ffuf" "nmap" "katana" "gau" "dalfox" "interactsh-client" "paramspider" "arjun" "kiterunner")
-    OPTIONAL_TOOLS=("dnsx" "naabu" "anew" "gf" "qsreplace" "subjack" "gowitness" "waybackurls" "hakrawler" "crlfuzz" "wafw00f" "tesseract" "proxychains4" "amass" "gospider" "uncover" "notify" "alterx" "pdtm" "trufflehog" "gitleaks" "openredirex" "corscanner" "uro")
+    CRITICAL_TOOLS=("subfinder" "httpx" "nuclei" "ffuf" "nmap" "katana" "gau" "dalfox" "interactsh-client" "paramspider" "arjun" "kiterunner" "ollama")
+    OPTIONAL_TOOLS=("dnsx" "naabu" "anew" "gf" "qsreplace" "subjack" "subzy" "gowitness" "waybackurls" "hakrawler" "crlfuzz" "wafw00f" "tesseract" "proxychains4" "amass" "gospider" "uncover" "notify" "alterx" "pdtm" "trufflehog" "gitleaks" "openredirex" "corscanner" "uro" "jq")
     
     INSTALLED=0
     MISSING=0
@@ -547,6 +579,8 @@ main() {
     install_system_deps
     echo ""
     install_golang
+    echo ""
+    install_ollama
     echo ""
     install_go_tools
     echo ""

@@ -75,9 +75,61 @@ if ($currentProxy -notlike "*goproxy.cn*") {
 }
 
 # ============================================================
-# 2. 检查 / 安装 Nmap
+# 2. 检查 / 安装 Ollama（本地 LLM 运行时 — brain.py 核心依赖）
 # ============================================================
-Write-Step "Step 2: 检查 nmap..."
+Write-Step "Step 2: 检查 Ollama (本地LLM引擎)..."
+
+if (Get-Command ollama -ErrorAction SilentlyContinue) {
+    Write-Ok "Ollama 已安装: $((ollama --version 2>&1) -replace 'ollama version ','')"
+} else {
+    Write-Warn "Ollama 未安装，正在下载..."
+    $ollamaUrl = "https://ollama.com/download/OllamaSetup.exe"
+    $dlPath = "$env:TEMP\OllamaSetup.exe"
+    try {
+        Invoke-WebRequest -Uri $ollamaUrl -OutFile $dlPath -UseBasicParsing
+        Write-Step "正在安装 Ollama..."
+        Start-Process $dlPath -ArgumentList "/S" -Wait
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+        if (Get-Command ollama -ErrorAction SilentlyContinue) {
+            Write-Ok "Ollama 安装成功"
+            Write-Warn "提示: 安装后运行 'ollama pull deepseek-r1:8b' 下载模型"
+        } else {
+            Write-Warn "Ollama 可能需要重启终端。手动安装: https://ollama.com/download"
+        }
+    } catch {
+        Write-Warn "Ollama 下载失败，请手动安装: https://ollama.com/download"
+    }
+}
+
+# ============================================================
+# 3. 检查 / 安装 jq（JSON处理工具）
+# ============================================================
+Write-Step "Step 3: 检查 jq..."
+
+if (Get-Command jq -ErrorAction SilentlyContinue) {
+    Write-Ok "jq 已安装"
+} else {
+    Write-Warn "jq 未安装，正在下载..."
+    $jqUrl = "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe"
+    $jqDir = "$env:LOCALAPPDATA\jq"
+    $jqPath = "$jqDir\jq.exe"
+    try {
+        if (-not (Test-Path $jqDir)) { New-Item -ItemType Directory -Path $jqDir -Force | Out-Null }
+        Invoke-WebRequest -Uri $jqUrl -OutFile $jqPath -UseBasicParsing
+        if ($env:Path -notlike "*$jqDir*") {
+            [System.Environment]::SetEnvironmentVariable("Path", "$env:Path;$jqDir", "User")
+            $env:Path += ";$jqDir"
+        }
+        Write-Ok "jq 安装成功: $jqPath"
+    } catch {
+        Write-Warn "jq 下载失败。手动下载: https://github.com/jqlang/jq/releases"
+    }
+}
+
+# ============================================================
+# 4. 检查 / 安装 Nmap
+# ============================================================
+Write-Step "Step 4: 检查 nmap..."
 
 $nmapVersion = "7.95"
 $nmapInstaller = "nmap-${nmapVersion}-setup.exe"
@@ -109,7 +161,7 @@ if (Get-Command nmap -ErrorAction SilentlyContinue) {
 # ============================================================
 # 3. 批量 go install 渗透工具（按优先级分组）
 # ============================================================
-Write-Step "Step 3: 批量安装 Go 渗透工具..."
+Write-Step "Step 5: 批量安装 Go 渗透工具..."
 
 $tools = @(
     # ═══════════════════════════════════════════════════════════
@@ -160,6 +212,7 @@ $tools = @(
     
     # ── 子域名接管 ──
     @{ Name = "subjack";            Pkg = "github.com/haccer/subjack@latest";                                        Desc = "子域名接管检测"; Priority = "P1" }
+    @{ Name = "subzy";              Pkg = "github.com/PentestPad/subzy@latest";                                      Desc = "子域名接管检测(更新更活跃)"; Priority = "P1" }
     
     # ── 子域名变异 ──
     @{ Name = "alterx";             Pkg = "github.com/projectdiscovery/alterx/cmd/alterx@latest";                   Desc = "子域名变异生成(dev→staging/test)"; Priority = "P1" }
@@ -234,12 +287,18 @@ foreach ($tool in $tools) {
 # ============================================================
 # 4. 安装 Python 工具 (pip)
 # ============================================================
-Write-Step "Step 4: 安装 Python 渗透工具 (pip)..."
+Write-Step "Step 6: 安装 Python 渗透工具 (pip)..."
 
 $pipTools = @(
     # P0 — 参数发现
     @{ Name = "paramspider";    Pkg = "paramspider";        Desc = "被动参数发现(从WebArchive挖带参URL)"; Priority = "P0" }
     @{ Name = "arjun";          Pkg = "arjun";              Desc = "主动参数发现(探测隐藏参数)"; Priority = "P0" }
+    
+    # P0 — AI/LLM 核心依赖（brain.py 需要）
+    @{ Name = "ollama";         Pkg = "ollama";             Desc = "Ollama Python SDK(brain.py核心)"; Priority = "P0" }
+    @{ Name = "rich";           Pkg = "rich";               Desc = "终端美化输出"; Priority = "P0" }
+    @{ Name = "langgraph";      Pkg = "langgraph";          Desc = "LLM Agent图引擎"; Priority = "P0" }
+    @{ Name = "langchain-ollama"; Pkg = "langchain-ollama"; Desc = "LangChain Ollama集成"; Priority = "P0" }
     
     # P1 — 漏洞检测
     @{ Name = "wafw00f";        Pkg = "wafw00f";            Desc = "WAF识别"; Priority = "P1" }
@@ -251,6 +310,9 @@ $pipTools = @(
     @{ Name = "linkfinder";     Pkg = "linkfinder";         Desc = "JS端点提取"; Priority = "P2" }
     @{ Name = "graphqlmap";     Pkg = "graphqlmap";         Desc = "GraphQL测试"; Priority = "P2" }
     @{ Name = "pyjwt";          Pkg = "pyjwt";              Desc = "JWT解析库"; Priority = "P2" }
+    @{ Name = "Pillow";         Pkg = "Pillow";             Desc = "图像处理(截图/OCR)"; Priority = "P2" }
+    @{ Name = "selenium";       Pkg = "selenium";           Desc = "浏览器自动化(Playwright备选)"; Priority = "P2" }
+    @{ Name = "beautifulsoup4"; Pkg = "beautifulsoup4";     Desc = "HTML解析"; Priority = "P2" }
     
     # P3 — 浏览器自动化
     @{ Name = "playwright";     Pkg = "playwright";         Desc = "无头浏览器自动化"; Priority = "P3" }
@@ -395,7 +457,7 @@ $groups = @(
     }
     @{
         Name = "漏洞检测"
-        Tools = @("nuclei", "dalfox", "crlfuzz", "subjack", "corscanner", "openredirex")
+        Tools = @("nuclei", "dalfox", "crlfuzz", "subjack", "subzy", "corscanner", "openredirex")
     }
     @{
         Name = "OOB/验证"
@@ -407,7 +469,12 @@ $groups = @(
     }
     @{
         Name = "辅助/管道"
-        Tools = @("anew", "uro", "notify", "pdtm", "wafw00f")
+        Tools = @("anew", "uro", "notify", "pdtm", "wafw00f", "jq")
+    }
+    @{
+        Name = "AI/LLM"
+        Tools = @("ollama")
+    }
     }
 )
 

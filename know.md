@@ -716,3 +716,222 @@ IDOR、Auth Bypass、XSS、SSRF、业务逻辑、Race Condition、SQL注入、OA
 | **启动** | `python redops/main.py` | `claude` → `/autopilot` |
 
 **最佳组合：** Claude Code 做决策 + 通过 RedOps MCP 调用 RedOps 执行命令（省Claude token）。
+
+
+
+---
+
+## 2025-06-18 新增工具说明
+
+### 新增工具总览（按攻击阶段）
+
+本次更新补全了黑盒 SRC 测试链路中所有缺失环节，从"只能扫"升级到"能验证+能发现隐藏参数+能检测泄露+能推送通知"。
+
+| 优先级 | 工具 | 阶段 | 一句话说明 | 安装方式 |
+|--------|------|------|-----------|----------|
+| **P0** | interactsh-client | OOB验证 | SSRF/XXE/RCE带外回调验证，没它SSRF只是"疑似" | go install |
+| **P0** | paramspider | 参数发现 | 从WebArchive被动挖历史URL中的参数 | pip install |
+| **P0** | arjun | 参数发现 | 主动探测隐藏参数（登录后页面也能用） | pip install |
+| **P1** | uncover | 资产搜索 | 一条命令查Shodan/Censys/FOFA/ZoomEye | go install |
+| **P1** | trufflehog | 密钥泄露 | 扫Git仓库+验证密钥是否仍有效（减少误报） | go install |
+| **P1** | gitleaks | 密钥泄露 | 和trufflehog互补，规则库不同 | go install |
+| **P1** | alterx | 子域名变异 | 已知dev.xxx.com→自动生成staging/test/uat变种 | go install |
+| **P1** | notify | 推送通知 | 高危发现→推送钉钉/企业微信/Telegram | go install |
+| **P1** | corscanner | CORS检测 | 批量扫CORS错配，SRC常见中危 | pip install |
+| **P1** | openredirex | 开放重定向 | OAuth场景重定向+token窃取=高危链 | pip install |
+| **P2** | qsreplace | 管道工具 | URL参数批量替换（配合注入测试） | go install |
+| **P2** | gf | 管道工具 | URL模式匹配，自动提取可能有XSS/SQLi的参数 | go install |
+| **P2** | uro | URL去重 | 智能去掉相似URL（比anew更聪明） | go install / pip |
+| **P3** | pdtm | 工具管理 | ProjectDiscovery全家桶一键更新 | go install |
+
+---
+
+### 各工具详细用法 + SRC注意事项
+
+#### interactsh-client（P0 — OOB回调验证）
+
+**为什么必须装：** 没有它你的SSRF永远只是"理论可能"，有了它就是"已验证带外交互"——直接从中危升高危。
+
+```bash
+# 启动（获取一个临时回调域名）
+interactsh-client
+
+# 输出类似：[INF] Using interactsh server: oast.pro
+# 给你一个域名：abc123.oast.pro
+
+# 测试SSRF时把这个域名塞进去
+curl "http://target.com/fetch?url=http://abc123.oast.pro"
+
+# 如果interactsh收到回调 → SSRF确认！截图写报告
+```
+
+**SRC注意：**
+- 不会触发WAF（目标只是发了一个DNS请求到你的回调域名）
+- 每次测试用新的子域名，不要复用
+- 可以验证：SSRF、XXE、RCE(DNS外带)、Log4j
+
+---
+
+#### paramspider + arjun（P0 — 参数发现组合拳）
+
+**为什么必须装：** URL里没参数就没法测注入。gau/waybackurls只给你历史URL，但很多参数是隐藏的。
+
+```bash
+# paramspider — 被动（从WebArchive挖，不碰目标服务器）
+paramspider -d target.com
+# 输出：带参数的历史URL列表
+
+# arjun — 主动（向目标发探测请求，需要限速）
+arjun -u "http://target.com/api/search" --stable
+# 输出：发现隐藏参数 q, page, sort, debug
+
+# 组合用法：paramspider找URL → arjun对每个URL探测隐藏参数 → dalfox/手工测注入
+```
+
+**SRC注意：**
+- paramspider 完全安全（查第三方数据源，不碰目标）
+- arjun 会向目标发请求，但流量很小（每个参数1-2个请求）
+- 发现 `debug=true` 或 `admin=1` 这种隐藏参数就是洞
+
+---
+
+#### uncover（P1 — Shodan/FOFA/Censys整合）
+
+**为什么推荐：** 不用开浏览器登录FOFA，一条命令查所有搜索引擎。
+
+```bash
+# 查目标暴露资产
+uncover -q "domain:target.com" -e shodan,fofa,censys
+
+# FOFA语法直接用
+uncover -q 'domain="target.com" && title="后台"' -e fofa
+
+# 配合httpx验证存活
+uncover -q "org:目标公司" -e shodan | httpx -silent
+```
+
+**配置API Key：** 运行安装脚本后编辑 `~/.config/uncover/provider-config.yaml` 填入你的FOFA/Shodan Key。
+
+**SRC注意：** 查搜索引擎不算攻击行为，完全安全。
+
+---
+
+#### trufflehog + gitleaks（P1 — 密钥泄露扫描）
+
+**为什么推荐：** SRC里"泄露AK/SK/Token"直接P1高危，扫一遍GitHub就可能出好几个洞。
+
+```bash
+# trufflehog — 扫目标的GitHub组织（自动验证密钥是否有效！）
+trufflehog github --org=目标公司 --only-verified
+
+# gitleaks — 扫本地克隆的仓库
+gitleaks detect --source /path/to/repo --report-path leaks.json
+
+# 组合用法：trufflehog扫在线仓库 + gitleaks扫本地（规则互补）
+```
+
+**SRC注意：**
+- 只扫公开仓库，不扫私有的（除非授权）
+- trufflehog的 `--only-verified` 选项只报告仍然有效的密钥（减少误报）
+- 发现有效的AWS Key/数据库密码/支付密钥 = 直接高危
+
+---
+
+#### notify（P1 — 推送通知）
+
+**为什么推荐：** nuclei跑了一晚上发现高危，你不用盯着终端看。
+
+```bash
+# 配合nuclei使用
+nuclei -l targets.txt -severity critical,high | notify -silent
+
+# 配合管道用
+subfinder -d target.com | httpx | nuclei -severity high | notify
+```
+
+**配置：** 编辑 `~/.config/notify/provider-config.yaml`，填入钉钉/企业微信/Telegram的webhook。
+
+---
+
+#### corscanner + openredirex（P1 — 快速出洞）
+
+**为什么推荐：** CORS错配和开放重定向是SRC最容易批量出洞的类型。
+
+```bash
+# CORS错配扫描（批量扫一堆URL）
+python3 -m corscanner -i urls.txt -o cors_results.json
+
+# 开放重定向（对有redirect参数的URL自动fuzz）
+cat urls_with_redirect.txt | openredirex
+```
+
+**SRC注意：**
+- CORS错配一般是中危（如果能读到敏感数据就是高危）
+- 开放重定向 + OAuth token窃取 = 高危链
+- 这两个工具请求量很小，不容易触发WAF
+
+---
+
+#### alterx（P1 — 子域名变异）
+
+```bash
+# 已知子域名列表 → 生成变种
+cat known_subs.txt | alterx -silent | dnsx -silent | httpx
+
+# 示例：已知 dev.target.com → 自动尝试 dev2/staging/test/uat/pre.target.com
+```
+
+---
+
+#### 管道工具组合（P2 — qsreplace + gf + uro）
+
+这三个工具是**管道胶水**，配合前面的工具串联攻击链：
+
+```bash
+# 完整链路示例：
+# 1. 收集URL
+echo target.com | gau | uro > all_urls.txt
+
+# 2. 用gf提取可能有XSS的URL
+cat all_urls.txt | gf xss > xss_candidates.txt
+
+# 3. 用qsreplace替换参数值为payload
+cat xss_candidates.txt | qsreplace '"><script>alert(1)</script>' > xss_test.txt
+
+# 4. 用dalfox验证
+cat xss_test.txt | dalfox pipe --worker 2 --delay 300
+```
+
+---
+
+### 安装脚本说明
+
+| 脚本 | 平台 | 用法 |
+|------|------|------|
+| `claude-hunt/install_tools_windows.ps1` | Windows | 右键PowerShell管理员 → `.\install_tools_windows.ps1` |
+| `claude-hunt/install_tools_linux.sh` | Linux/Kali | `sudo bash claude-hunt/install_tools_linux.sh` |
+| `claude-hunt/install_tools.sh` | Mac (Homebrew) | `bash claude-hunt/install_tools.sh` |
+
+三个脚本功能一致：
+1. 安装 Go + nmap（如果没有）
+2. go install 全部 Go 工具（24个）
+3. pip install Python 工具（7-13个）
+4. 更新 nuclei 模板
+5. 生成 notify/uncover 配置模板
+6. 验证安装结果（分组显示）
+7. 打印 SRC 限速参数提醒
+
+---
+
+### 工具更新方式
+
+```bash
+# 方式1：用pdtm一键更新所有ProjectDiscovery工具
+pdtm -update-all
+
+# 方式2：单独更新某个工具
+go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+
+# 方式3：重新跑安装脚本（会跳过已安装的）
+bash claude-hunt/install_tools_linux.sh
+```

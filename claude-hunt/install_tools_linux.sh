@@ -108,9 +108,13 @@ install_system_deps() {
         "nmap"
         "dnsutils"      # dig, nslookup
         "whois"
-        "chromium-browser"  # 用于无头浏览器
+        "chromium-browser"  # 用于无头浏览器截图
         "unzip"
         "build-essential"
+        "tesseract-ocr"         # 本地OCR引擎
+        "tesseract-ocr-chi-sim" # 中文识别语言包
+        "proxychains4"          # 代理链
+        "sqlmap"                # SQL注入
     )
     
     for pkg in "${PKGS[@]}"; do
@@ -199,6 +203,11 @@ install_go_tools() {
         ["gf"]="github.com/tomnomnom/gf@latest"
         ["qsreplace"]="github.com/tomnomnom/qsreplace@latest"
         ["subjack"]="github.com/haccer/subjack@latest"
+        ["kiterunner"]="github.com/assetnote/kiterunner/cmd/kr@latest"
+        ["waybackurls"]="github.com/tomnomnom/waybackurls@latest"
+        ["hakrawler"]="github.com/hakluke/hakrawler@latest"
+        ["gowitness"]="github.com/sensepost/gowitness@latest"
+        ["crlfuzz"]="github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest"
     )
     
     echo ""
@@ -247,6 +256,12 @@ install_python_tools() {
         "sqlmap"        # SQL注入（注意：SRC实名情况慎用）
         "pyjwt"         # JWT 解析
         "requests"      # HTTP 库
+        "pytesseract"   # 本地OCR（验证码识别备选）
+        "Pillow"        # 图像处理
+        "graphqlmap"    # GraphQL测试
+        "corsscanner"   # CORS检测
+        "wafw00f"       # WAF识别
+        "linkfinder"    # JS端点提取
     )
     
     for tool in "${PY_TOOLS[@]}"; do
@@ -430,8 +445,8 @@ verify_installation() {
     # 确保 PATH 包含 go/bin
     export PATH="$HOME/go/bin:/usr/local/go/bin:$PATH"
     
-    CRITICAL_TOOLS=("subfinder" "httpx" "nuclei" "ffuf" "nmap" "katana" "gau" "dalfox")
-    OPTIONAL_TOOLS=("dnsx" "naabu" "anew" "gf" "qsreplace" "arjun" "interactsh-client" "subjack")
+    CRITICAL_TOOLS=("subfinder" "httpx" "nuclei" "ffuf" "nmap" "katana" "gau" "dalfox" "kiterunner")
+    OPTIONAL_TOOLS=("dnsx" "naabu" "anew" "gf" "qsreplace" "arjun" "interactsh-client" "subjack" "gowitness" "waybackurls" "hakrawler" "crlfuzz" "wafw00f" "tesseract" "proxychains4")
     
     INSTALLED=0
     MISSING=0

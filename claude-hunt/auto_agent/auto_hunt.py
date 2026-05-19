@@ -26,6 +26,7 @@ from session_monitor import SessionMonitor
 from asset_discovery import AssetDiscovery
 from intel_checker import IntelChecker
 from checkpoint_manager import CheckpointManager
+from scope_updater import ScopeUpdater
 from phases.recon import ReconPhase
 from phases.params import ParamPhase
 from phases.hunt import HuntPhase
@@ -136,6 +137,23 @@ def run_agent(target, mode, config):
     asset_disc = AssetDiscovery(engine, logger)
     intel = IntelChecker(engine, logger)
     checkpoint_mgr = CheckpointManager(config)
+    
+    # Scope 检查
+    scope_updater = ScopeUpdater(config)
+    scope_updater.warn_if_stale()
+    
+    # 检查目标是否在授权范围内
+    target_scope = config.get('target', {}).get('scope', [])
+    target_out_of_scope = config.get('target', {}).get('out_of_scope', [])
+    if target_scope and not scope_updater.is_target_in_scope(target, target_scope, target_out_of_scope):
+        console.print(f"[bold red]警告: {target} 不在配置的授权范围内![/bold red]")
+        if mode == "semi":
+            if not Confirm.ask("目标不在 scope 内，确认继续？", default=False):
+                console.print("[red]退出[/red]")
+                sys.exit(1)
+        elif mode == "auto":
+            console.print("[red]自动模式: 目标不在 scope 内，终止运行[/red]")
+            sys.exit(1)
     
     # 写日志头
     logger.write_header(target, mode)
@@ -313,10 +331,18 @@ def main():
     parser = argparse.ArgumentParser(description="Bai Auto-Hunt Agent")
     parser.add_argument("--target", "-t", help="目标域名")
     parser.add_argument("--mode", "-m", choices=["auto", "semi"], help="运行模式")
+    parser.add_argument("--scope-update", help="从文件更新 scope (每行一个域名)")
     args = parser.parse_args()
     
     show_banner()
     config = load_config()
+    
+    # 处理 scope 更新请求
+    if args.scope_update:
+        updater = ScopeUpdater(config)
+        updater.update_from_file(args.scope_update)
+        console.print("[green]Scope 更新完成[/green]")
+        sys.exit(0)
     
     # 模式选择
     mode = args.mode or select_mode()

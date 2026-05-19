@@ -72,6 +72,15 @@ checkpoint:
   directory: "~/.bai-agent/checkpoints"  # 检查点保存目录
   auto_resume: true           # auto模式下自动恢复上次进度
 
+# Scope 自动更新（授权范围管理）
+scope_updater:
+  enabled: true               # 启用 scope 管理
+  max_age_hours: 24           # scope 数据超过24小时视为过期
+  data_dir: "~/.bai-agent/scope"  # scope 数据存储目录
+  platforms:                  # 关注的平台列表（用于提醒）
+    - "butian"                # 补天
+    - "vulbox"                # 漏洞盒子
+
 # Session 监控（账号状态检测）
 session_monitor:
   check_url: ""               # 填一个登录后能正常访问的URL(如个人中心)

@@ -81,6 +81,17 @@ scope_updater:
     - "butian"                # 补天
     - "vulbox"                # 漏洞盒子
 
+# 误报自动过滤
+false_positive_filter:
+  enabled: true               # 启用误报过滤
+  auto_threshold: 30          # auto模式下，可信度低于此值自动过滤
+  patterns:                   # 启用的检测模式
+    - "idor"                  # IDOR: 响应体相同检测
+    - "cors"                  # CORS: 非任意来源反射检测
+    - "race_condition"        # 竞态: 服务端正确处理检测
+    - "xss"                   # XSS: 不可执行上下文检测
+    - "generic"               # 通用: 404/WAF/蜜罐检测
+
 # Session 监控（账号状态检测）
 session_monitor:
   check_url: ""               # 填一个登录后能正常访问的URL(如个人中心)

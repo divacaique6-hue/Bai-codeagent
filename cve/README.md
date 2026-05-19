@@ -9,6 +9,7 @@
 | [SonicJs](https://github.com/SonicJs-Org/sonicjs) | 1570 | TypeScript | Edge-native headless CMS for Cloudflare Workers | 4 |
 | [Automad](https://github.com/marcantondahmen/automad) | 894 | PHP | Flat-file content management system | 1 |
 | [Vrite](https://github.com/vriteio/vrite) | 1979 | TypeScript | Developer content platform | 1 |
+| [MindSpore](https://github.com/mindspore-ai/mindspore) | 4200+ | C++/Python | AI 训练推理框架 (华为) | 4 |
 
 ## 发现列表
 
@@ -32,6 +33,15 @@
 | 编号 | 严重性 | 标题 | 文件 |
 |------|--------|------|------|
 | VRITE-2025-001 | High (7.5) | 未认证 SSRF via Link Preview | [vrite-001-unauthenticated-ssrf.md](vrite-001-unauthenticated-ssrf.md) |
+
+### MindSpore (4 vulnerabilities)
+
+| 编号 | 严重性 | 标题 | 文件 |
+|------|--------|------|------|
+| MS-2025-001 | Critical (8.6) | MindIR External Data 路径穿越任意文件读取 | [mindspore-001-path-traversal-mindir.md](mindspore-001-path-traversal-mindir.md) |
+| MS-2025-002 | High (7.1) | MindIR External Data Offset 堆越界读取 | [mindspore-002-heap-oob-read-offset.md](mindspore-002-heap-oob-read-offset.md) |
+| MS-2025-003 | Medium (5.5) | MindIR Tensor 未初始化内存信息泄露 | [mindspore-003-uninit-memory-disclosure.md](mindspore-003-uninit-memory-disclosure.md) |
+| MS-2025-004 | Medium (5.5) | Protobuf 解析无大小限制 OOM DoS | [mindspore-004-protobuf-oom-dos.md](mindspore-004-protobuf-oom-dos.md) |
 
 ## 已审计但未发现漏洞的项目
 

@@ -136,6 +136,16 @@ auto ret = common::huge_memcpy(tensor_data_buf, tensor_info->data().nbytes(),
                                data + offset, length);
 ```
 
+## 重复性检查
+
+**结论**: 未找到针对 MindSpore external_data.offset 越界读取的公开 CVE 或安全公告。
+
+已知相关但不重复的漏洞:
+- CVE-2023-25801 (TensorFlow TFLite OOB read) — 不同框架
+- CVE-2025-3145 (MindSpore rfft2 内存损坏) — 不同代码路径
+
+**PoC 文件**: `poc_ms002_oob_read.mindir` + `poc_ms002_data.bin` (73+64 bytes，已验证)
+
 ## 参考
 
 - [CWE-125: Out-of-bounds Read](https://cwe.mitre.org/data/definitions/125.html)

@@ -256,8 +256,22 @@ if (location.find("..") != std::string::npos || location[0] == '/') {
 }
 ```
 
+## 重复性检查
+
+| 已知 CVE | 项目 | 是否与本漏洞重复 | 说明 |
+|----------|------|-----------------|------|
+| CVE-2025-51480 | **ONNX** (非 MindSpore) | ❌ 不重复 | 同类型漏洞(external_data.location穿越)，但针对ONNX格式/onnxruntime解析器。MindSpore使用独立的MindIR格式和自己的C++解析器(load_model.cc) |
+| CVE-2024-27318 | **ONNX** (非 MindSpore) | ❌ 不重复 | ONNX tensor proto symlink 穿越，不同代码库 |
+| CVE-2025-3145 | MindSpore 2.5.0 | ❌ 不重复 | numpy.fft.rfft2 内存损坏，完全不同的代码路径 |
+| CVE-2023-2970 | MindSpore | ❌ 不重复 | JsonHelper::UpdateArray 内存损坏，不同模块 |
+
+**结论**: 本漏洞**未被报告过**。虽然 ONNX 有类似的 external_data 路径穿越(CVE-2025-51480)，但 MindSpore 的 MindIR 是独立格式、独立解析器，属于不同的代码和项目。截至 2026-05-19 在 load_model.cc 第941行仍未添加任何路径校验。
+
+**PoC 文件**: `poc_ms001_path_traversal.mindir` (97 bytes，已验证 protobuf 结构正确)
+
 ## 参考
 
 - [CWE-22: Improper Limitation of a Pathname to a Restricted Directory](https://cwe.mitre.org/data/definitions/22.html)
+- [CVE-2025-51480: ONNX external_data path traversal (同类型参考)](https://nvd.nist.gov/vuln/detail/CVE-2025-51480)
 - [CVE-2024-3660: TensorFlow arbitrary file read via SavedModel](https://nvd.nist.gov/vuln/detail/CVE-2024-3660)
 - [MindSpore Security Policy](https://gitee.com/mindspore/community/blob/master/security/README.md)

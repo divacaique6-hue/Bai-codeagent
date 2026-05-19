@@ -118,6 +118,14 @@ errno_t ret = memcpy_s(tensor_data_buf, tensor->data().nbytes(),
                        tensor_buf.data(), tensor_buf.size());
 ```
 
+## 重复性检查
+
+**结论**: 未找到针对 MindSpore tensor 未初始化内存泄露的公开 CVE。
+- CVE-2021-37678 (TensorFlow TFLite) 是同类型漏洞但不同框架
+- HuggingFace 上有 mindspore-dos-poc，但是 DoS 类型，非信息泄露
+
+**PoC 文件**: `poc_ms003_uninit.mindir` (66 bytes，已验证)
+
 ## 参考
 
 - [CWE-908: Use of Uninitialized Resource](https://cwe.mitre.org/data/definitions/908.html)

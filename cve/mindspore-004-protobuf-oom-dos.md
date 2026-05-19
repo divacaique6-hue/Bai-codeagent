@@ -149,6 +149,17 @@ if (!model.ParseFromCodedStream(&coded_input)) {
 }
 ```
 
+## 重复性检查
+
+**结论**: HuggingFace 上有 `ericblackgachara/mindspore-dos-poc`（DoS PoC），但需确认是否是同一个向量。
+- 如果该 PoC 是通过 protobuf OOM 触发，则可能重复
+- 如果是通过其他路径（如大 tensor 计算）触发，则不重复
+- 建议报告前先确认该 HuggingFace 仓库的具体内容
+
+**PoC 构造方式与已知 CVE-2024-7254 (protobuf recursive parsing) 不同**：
+- CVE-2024-7254 是通过嵌套深度导致栈溢出
+- 本漏洞是通过大 repeated field 导致堆 OOM
+
 ## 参考
 
 - [CWE-400: Uncontrolled Resource Consumption](https://cwe.mitre.org/data/definitions/400.html)

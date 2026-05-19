@@ -66,6 +66,30 @@ agent:
   max_phase_time: 600         # 单阶段最长10分钟
   trace_analysis_interval: 5  # 每5步做一次痕迹分析
 
+# Session 监控（账号状态检测）
+session_monitor:
+  check_url: ""               # 填一个登录后能正常访问的URL(如个人中心)
+  cookie: ""                  # 你的登录Cookie
+  expected_keyword: ""        # 页面中应该出现的关键词(如用户名)
+  check_interval: 10          # 每10步检查一次Session
+
+# IDOR 多账号对比
+idor:
+  cookie_a: ""                # 账号A的Cookie
+  cookie_b: ""                # 账号B的Cookie (用A的Cookie访问B的资源)
+  # 配置后 Agent 会自动从URL中识别IDOR接口并交叉验证
+
+# 目标 + 资产发现
+target:
+  domain: ""                  # 运行时输入
+  company_name: ""            # 公司名(用于ICP备案关联/天眼查穿透)
+  scope:
+    - "*.target.com"
+  out_of_scope:
+    - "*.gov.cn"
+    - "*.edu.cn"
+    - "payment.target.com"
+
 # 断点续跑（崩溃恢复）
 checkpoint:
   enabled: true               # 启用断点保存
@@ -91,28 +115,4 @@ false_positive_filter:
     - "race_condition"        # 竞态: 服务端正确处理检测
     - "xss"                   # XSS: 不可执行上下文检测
     - "generic"               # 通用: 404/WAF/蜜罐检测
-
-# Session 监控（账号状态检测）
-session_monitor:
-  check_url: ""               # 填一个登录后能正常访问的URL(如个人中心)
-  cookie: ""                  # 你的登录Cookie
-  expected_keyword: ""        # 页面中应该出现的关键词(如用户名)
-  check_interval: 10          # 每10步检查一次Session
-
-# IDOR 多账号对比
-idor:
-  cookie_a: ""                # 账号A的Cookie
-  cookie_b: ""                # 账号B的Cookie (用A的Cookie访问B的资源)
-  # 配置后 Agent 会自动从URL中识别IDOR接口并交叉验证
-
-# 目标 + 资产发现
-target:
-  domain: ""                  # 运行时输入
-  company_name: ""            # 公司名(用于ICP备案关联/天眼查穿透)
-  scope:
-    - "*.target.com"
-  out_of_scope:
-    - "*.gov.cn"
-    - "*.edu.cn"
-    - "payment.target.com"
 

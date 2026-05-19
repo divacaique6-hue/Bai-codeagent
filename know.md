@@ -966,3 +966,125 @@ docker compose up -d
 ---
 
 *最后更新：2025-06*
+
+
+
+---
+
+## 十八、CVE / CNVD 漏洞挖掘指南
+
+### 18.1 CVE vs CNVD 区别
+
+| | CVE | CNVD |
+|---|---|---|
+| 提交地址 | https://cveform.mitre.org | https://www.cnvd.org.cn |
+| 语言 | 英文 | 中文 |
+| 适用范围 | 全球通用软件 | 国内重点行业(运营商/国企/资产>5000万) |
+| 审核周期 | 1-4 周 | 3-15 工作日 |
+| 产出 | CVE-20XX-XXXXX 编号 | CNVD-20XX-XXXXX 编号 |
+| 价值 | 国际认可/简历加分 | 国内证书/评级加分 |
+
+**一洞两吃：** 同一个通用漏洞可以同时提交 CVE + CNVD，两个体系互不冲突。
+
+### 18.2 什么漏洞能报 CNVD
+
+- 通用型漏洞（开源 CMS/框架，不是某个特定网站的洞）
+- 影响大型运营商、国企事业单位、机关部门
+- 目标企业资产大于 5000 万
+- 有明确影响面（FOFA 能搜到受影响资产）
+
+### 18.3 CVE/CNVD 挖掘工作流
+
+```
+1. 选目标（从 cms_targets.yaml 选或自己找 GitHub 项目）
+   ↓
+2. Clone 源码到本地
+   ↓
+3. AI 代码审计（code_auditor.py 自动扫描危险函数）
+   ↓
+4. 本地搭建环境验证（Docker / phpStudy）
+   ↓
+5. 生成 PoC（poc_generator.py）
+   ↓
+6. FOFA 统计影响面（asset_counter.py）
+   ↓
+7. 生成双报告:
+   - 英文 → 提交 MITRE 拿 CVE
+   - 中文 → 提交 CNVD 拿编号
+   ↓
+8. (可选) 写 nuclei 模板 → 加入自己模板库
+   ↓
+9. (可选) FOFA 找使用该系统的企业 → 报对应 SRC 拿赏金
+```
+
+### 18.4 使用 cve_hunter.py
+
+```bash
+# 列出推荐审计目标
+python3 claude-hunt/tools/cve_hunter.py --list
+
+# 指定 GitHub 仓库审计
+python3 claude-hunt/tools/cve_hunter.py --repo https://github.com/xxx/cms
+
+# 审计本地源码
+python3 claude-hunt/tools/cve_hunter.py --local /path/to/code --lang php
+
+# 完整流程（审计 + PoC + 资产统计 + 双报告）
+python3 claude-hunt/tools/cve_hunter.py --repo URL --full
+```
+
+### 18.5 最容易出 CVE 的目标
+
+| 类型 | 为什么容易 | 关注点 |
+|------|-----------|--------|
+| 国产 PHP CMS | 代码质量低、审计少 | SQL注入/文件上传/RCE |
+| OA 系统 | 功能复杂接口多 | 越权/反序列化/SSRF |
+| Java 后台框架 | Shiro/FastJSON/Log4j 组件 | 反序列化/JNDI/SpEL |
+| Python Web 项目 | SSTI/Pickle 反序列化 | 模板注入/命令执行 |
+| 物联网固件 | 硬编码密码/命令注入 | RCE/信息泄露 |
+| star 100-5000 的项目 | 没人审计过 | 各种基础漏洞 |
+
+### 18.6 代码审计关注的危险函数
+
+| 语言 | 危险函数/模式 | 漏洞类型 |
+|------|-------------|---------|
+| PHP | `eval()`, `system()`, `exec()`, `unserialize()` | RCE/反序列化 |
+| PHP | `mysql_query()` + 字符串拼接 | SQL注入 |
+| PHP | `include($var)`, `require($var)` | 文件包含 |
+| Java | `Runtime.exec()`, `ProcessBuilder` | 命令执行 |
+| Java | `ObjectInputStream.readObject()` | 反序列化 |
+| Java | `SpelExpressionParser` | SpEL注入 |
+| Python | `eval()`, `exec()`, `os.system()` | RCE |
+| Python | `pickle.loads()`, `yaml.load()` | 反序列化 |
+| Python | `render_template_string(user_input)` | SSTI |
+| Go | `exec.Command()` + 用户输入 | 命令注入 |
+| Node.js | `child_process.exec()` + 用户输入 | 命令执行 |
+| Node.js | `eval(req.body)` | RCE |
+
+### 18.7 提交流程
+
+#### CVE 提交（MITRE）
+1. 访问 https://cveform.mitre.org/
+2. 填写英文漏洞描述
+3. 附上 PoC + 影响版本
+4. 等待分配 CVE 编号（1-4周）
+5. 建议先报告给厂商等 90 天后再公开
+
+#### CNVD 提交
+1. 注册 https://www.cnvd.org.cn 账号
+2. 提交漏洞 → 选"通用型"
+3. 填写中文报告（用 cnvd_report_template.md）
+4. 等待审核（3-15 工作日）
+5. 通过后获得 CNVD 编号 + 证书
+
+### 18.8 注意事项
+
+- **先报告厂商** → 等回复 → 再提交 CVE/CNVD
+- **不公开 0day** → 在厂商修复前不要发 Twitter/博客
+- **截图留证** → 本地环境复现的全过程录屏
+- **不攻击线上** → 所有验证在本地 Docker 环境完成
+- **影响面统计** → 只用 FOFA 搜索计数，不实际攻击
+
+---
+
+*最后更新：2025-06*

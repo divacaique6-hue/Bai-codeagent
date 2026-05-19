@@ -66,6 +66,12 @@ agent:
   max_phase_time: 600         # 单阶段最长10分钟
   trace_analysis_interval: 5  # 每5步做一次痕迹分析
 
+# 断点续跑（崩溃恢复）
+checkpoint:
+  enabled: true               # 启用断点保存
+  directory: "~/.bai-agent/checkpoints"  # 检查点保存目录
+  auto_resume: true           # auto模式下自动恢复上次进度
+
 # Session 监控（账号状态检测）
 session_monitor:
   check_url: ""               # 填一个登录后能正常访问的URL(如个人中心)

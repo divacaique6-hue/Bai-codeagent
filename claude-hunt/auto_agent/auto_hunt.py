@@ -25,6 +25,7 @@ from waf_adapter import WAFAdapter
 from session_monitor import SessionMonitor
 from asset_discovery import AssetDiscovery
 from intel_checker import IntelChecker
+from checkpoint_manager import CheckpointManager
 from phases.recon import ReconPhase
 from phases.params import ParamPhase
 from phases.hunt import HuntPhase
@@ -134,6 +135,7 @@ def run_agent(target, mode, config):
     session_mon = SessionMonitor(engine, logger, config)
     asset_disc = AssetDiscovery(engine, logger)
     intel = IntelChecker(engine, logger)
+    checkpoint_mgr = CheckpointManager(config)
     
     # 写日志头
     logger.write_header(target, mode)
@@ -184,9 +186,36 @@ def run_agent(target, mode, config):
     }
     
     step_count = 0
+    start_phase_index = 0
+    last_checkpoint_path = ""
+    
+    # ═══ 断点恢复检查 ═══
+    checkpoint_data = checkpoint_mgr.load_latest_checkpoint(target)
+    if checkpoint_data:
+        if mode == "auto" and checkpoint_mgr.auto_resume:
+            # 全自动模式：直接恢复
+            console.print(f"\n[bold yellow]发现上次未完成的检查点，自动恢复进度...[/bold yellow]")
+            findings = checkpoint_data.get("findings", findings)
+            step_count = checkpoint_data.get("step_count", 0)
+            start_phase_index = checkpoint_data.get("current_phase_index", 0) + 1
+            last_checkpoint_path = checkpoint_data.get("_checkpoint_path", "")
+            console.print(f"  恢复到阶段 {start_phase_index}，已完成步数 {step_count}")
+        elif mode == "semi":
+            # 半自动模式：询问用户
+            console.print(f"\n[bold yellow]发现上次未完成的检查点[/bold yellow]")
+            if Confirm.ask("是否恢复上次进度？", default=True):
+                findings = checkpoint_data.get("findings", findings)
+                step_count = checkpoint_data.get("step_count", 0)
+                start_phase_index = checkpoint_data.get("current_phase_index", 0) + 1
+                last_checkpoint_path = checkpoint_data.get("_checkpoint_path", "")
+                console.print(f"  恢复到阶段 {start_phase_index}，已完成步数 {step_count}")
     
     try:
-        for phase in phases:
+        for phase_idx, phase in enumerate(phases):
+            # 跳过已完成的阶段（断点恢复时）
+            if phase_idx < start_phase_index:
+                continue
+            
             phase_name = phase.__class__.__name__
             
             console.print(f"\n{'='*50}")
@@ -210,6 +239,11 @@ def run_agent(target, mode, config):
                     findings[key].extend(value)
             
             step_count += 1
+            
+            # 保存检查点
+            last_checkpoint_path = checkpoint_mgr.save_checkpoint(
+                target, mode, phase_idx, findings, step_count, waf_result
+            )
             
             # Session 状态监控（每阶段后检查）
             if session_mon.should_check(step_count):
@@ -245,6 +279,10 @@ def run_agent(target, mode, config):
     except Exception as e:
         console.print(f"\n[red]异常: {e}[/red]")
         logger.log_event("ERROR", str(e))
+    
+    # 标记检查点为已完成
+    if last_checkpoint_path:
+        checkpoint_mgr.mark_completed(last_checkpoint_path)
     
     # ═══ 提交前情报查重 ═══
     vulns = [v for v in findings.get('vulnerabilities', []) if v.get('verified_4proof')]

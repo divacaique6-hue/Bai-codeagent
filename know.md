@@ -615,3 +615,354 @@ done
 ---
 
 *最后更新：2025-06*
+
+
+
+---
+
+## 十、信息搜集实战技术
+
+### 10.1 子域名枚举与域名活性检测
+
+```bash
+# ffuf 子域名爆破（vhost 方式）
+ffuf -w /usr/share/dnsrecon/subdomains-top1mil-5000.txt \
+  -u https://www.4399.com/ -H "Host:FUZZ.4399.com" -mc 200
+
+# ffuf 子域名拼接方式
+ffuf -w /usr/share/dnsrecon/subdomains-top1mil-5000.txt \
+  -u https://sso-FUZZ.baidu.com -c -t 50 -mc all -fs 42
+
+# httpx 批量检测域名活性
+httpx -l websites.txt > alive.txt
+
+# EHole 指纹扫描（识别资产指纹/框架）
+EHole finger -l websites.txt
+```
+
+### 10.2 CDN 绕过方法大全
+
+CDN 会隐藏真实 IP，以下是绕过方法：
+
+| 方法 | 原理 | 操作 |
+|------|------|------|
+| DNS 历史记录 | 运维时可能暴露过真实 IP | netcraft/viewdns/微步在线 |
+| 子域名 ping | 子域名可能没挂 CDN | ping sub.target.com |
+| 国外 ping | CDN 防护有地域范围 | ping.chinaz.com 国际测速 |
+| 邮件回信 | 主站发出的邮件暴露真实 IP | 诱导目标发邮件，查看邮件原文 |
+| phpinfo | 页面可能泄露 SERVER_ADDR | 找 phpinfo 页面 |
+| SSL 证书 | 证书关联 IP | crt.sh + censys 反查 |
+| 手机 APP | APP 可能不走 CDN | 抓 APP 包看 IP |
+| 小程序 | 小程序接口可能暴露 IP | 抓小程序请求 |
+| DDOS 打爆 CDN | CDN 放弃保护暴露真实 IP | 压力测试（需授权） |
+| F5 LTM 解码 | Set-Cookie 包含编码后的 IP | 见下方解码方法 |
+| 全网扫描 | 扫描匹配目标指纹 | hackcdn / w8fuckcdn |
+
+#### F5 LTM 解码法
+
+```
+Set-Cookie: BIGipServerpool_8.29_8030=487098378.24095.0000
+
+步骤：
+1. 取第一节十进制数: 487098378
+2. 转十六进制: 1d08880a
+3. 从后往前每两位分割: 0a.88.08.1d
+4. 各段转十进制: 10.136.8.29 ← 真实 IP
+```
+
+#### 找到真实 IP 后
+
+修改本地 hosts 文件，将域名指向真实 IP 绕过 CDN 防护：
+```
+# Windows: C:\Windows\system32\drivers\etc\hosts
+# Linux: /etc/hosts
+真实IP  target.com
+```
+
+### 10.3 网站结构分析
+
+| 文件/目录 | 作用 | 安全风险 |
+|-----------|------|----------|
+| `robots.txt` | 搜索引擎爬取规则 | 暴露后台路径、敏感目录 |
+| `conf/` / `config/` | 网站配置（数据库连接等） | 数据库账密泄露 |
+| `data/` / `db/` | 数据文件、备份 | 数据库备份下载 |
+| `install/` | 安装目录 | 删除 install.lock 可重装 |
+| `source/` / `plugin/` | 源码和插件 | 漏洞高发区（审计盲区） |
+| `static/` | 静态文件(css/js/图片) | JS 中可能泄露接口 |
+| `template/` | 前端模板 | 一般无风险 |
+| `admin.php` | 后台入口 | 爆破/默认口令 |
+
+### 10.4 文件泄露漏洞类型
+
+| 泄露类型 | 路径特征 | 利用方式 |
+|----------|---------|---------|
+| 备份文件 | `*.zip`, `*.rar`, `*.bak`, `*.sql`, `*.tar.gz` | 直接下载获取源码/数据库 |
+| 编辑器备份 | `*.php.bak`, `*.phps`, `*.swp` | 下载获取源码 |
+| Git 泄露 | `/.git/config` | githack 恢复整站源码 |
+| SVN 泄露 | `/.svn/entries` | dvcs-ripper 恢复 |
+| DS_Store | `/.DS_Store` | macOS 文件索引泄露目录结构 |
+| install.lock | `/data/install.lock` | 删除后可重装网站 |
+
+---
+
+## 十一、端口与服务攻击
+
+### 常见端口及攻击方式
+
+| 端口 | 服务 | 攻击方式 |
+|------|------|---------|
+| 21 | FTP | 爆破 / 匿名登录(anonymous) |
+| 22 | SSH | 爆破 / 密钥泄露 |
+| 23 | Telnet | 爆破（九头蛇） |
+| 25 | SMTP | 钓鱼邮件 |
+| 53 | DNS | 域传送 / DNS 劫持 |
+| 80/443 | HTTP/S | Web 漏洞 |
+| 135+445 | SMB | 永恒之蓝(MS17-010) |
+| 1433 | MSSQL | 爆破 / xp_cmdshell |
+| 2375/2376 | Docker | 未授权 / 逃逸 |
+| 3000 | Grafana | 默认口令 admin/admin |
+| 3306 | MySQL | 爆破 / UDF提权 |
+| 3389 | RDP | 爆破远程桌面 |
+| 6379 | Redis | 未授权写 webshell |
+| 8080 | Tomcat | 默认口令 / 部署 war |
+| 27017 | MongoDB | 未授权访问 |
+| 873 | Rsync | 未授权同步 |
+
+### nmap 常用命令
+
+```bash
+# 基础全面扫描
+nmap -p- -T4 -A -v 目标IP
+
+# 隐蔽扫描（不建立 TCP 连接，不留日志）
+nmap -sS 目标IP
+
+# 指定端口
+nmap -p 80,443,3389,3306,6379 目标IP
+
+# 扫描网段
+nmap -sL 192.168.1.0/24
+
+# Ping 扫描（主机发现）
+nmap -sn 192.168.1.0/24
+
+# 跳过 Ping 直接扫描
+nmap -Pn 目标IP
+
+# UDP 扫描
+nmap -sU 目标IP
+
+# 操作系统识别
+nmap -O 目标IP
+```
+
+---
+
+## 十二、登录口攻击方法
+
+### 12.1 弱口令爆破
+
+**常见默认口令：**
+
+| 系统/设备 | 用户名 | 密码 |
+|-----------|--------|------|
+| k8s 控制台 | admin | P@88w0rd |
+| Zabbix | admin | zabbix |
+| Grafana | admin | admin |
+| Nacos | nacos | nacos |
+| Tomcat | tomcat / admin | tomcat / admin |
+| ActiveMQ | admin | admin |
+| WebLogic | weblogic | weblogic |
+| RabbitMQ | admin / guest | guest |
+| GitLab | root | 可爆破 |
+| Druid | admin | 123456 |
+| 若依 | admin | admin123 |
+| 酒店系统 | admin | 000000 / 888888 / 00000000 / 88888888 |
+
+**常用密码字典关键词：** `qwert`, `admin`, `root`, `test`, `password`, `secret`, `000000`, `123456`
+
+### 12.2 验证码绕过
+
+| 方法 | 场景 |
+|------|------|
+| AI OCR 识别 | 简单字符验证码用 pytesseract |
+| 打码平台 | 复杂验证码用云码等人工打码 |
+| 滑块自动化 | pyautogui 模拟鼠标拖拽 |
+| 验证码复用 | 抓包发现验证码不过期/不刷新 |
+| 删除验证码参数 | 请求中去掉验证码字段看后端是否校验 |
+| 万能验证码 | 某些系统有测试用 `0000` / `1234` |
+
+### 12.3 短信验证码漏洞
+
+| 漏洞类型 | 利用方式 |
+|----------|---------|
+| 响应包泄露 | 抓 response 包，验证码直接在返回数据中 |
+| 验证码爆破 | 4位=10000种，无频率限制时可爆破 |
+| 手机号不绑定 | 用 A 手机收验证码，注册写 B 手机号 |
+| 修改返回包 | `false→true`、`-1→0`、`error→success` |
+| 验证码为空 | 传 `null` 或空值绕过 |
+| 第三方登录篡改 | 修改微博/QQ 返回的 UID 越权登录 |
+| 短信轰炸 | 注册/注销/重置接口无频率限制 |
+
+### 12.4 任意用户漏洞
+
+测试点：**注册、登录、密码重置、注销** — 四个口都要试
+
+- 密码重置链接可预测
+- 通用框架 nday 漏洞（很多公司不升级）
+- SQL 注入万能密码：`' or 1=1--`
+
+---
+
+## 十三、框架漏洞速查
+
+### PHP 框架
+
+| 框架 | 经典漏洞 | 版本 |
+|------|---------|------|
+| ThinkPHP | RCE | 5.0.23（最经典） |
+| Laravel | 反序列化 | 多版本 |
+| Discuz | 越权/注入 | X3.x |
+
+**ThinkPHP 5.0.23 RCE payload:**
+```
+_method=__construct&filter[]=system&method=get&server[REQUEST_METHOD]=whoami
+```
+
+### Java 框架
+
+| 框架 | 经典漏洞 | 特征 |
+|------|---------|------|
+| Struts2 | OGNL RCE | Content-Type 注入 |
+| Spring | SpEL RCE | `/users` 路径 |
+| Shiro | 反序列化 | `rememberMe=` Cookie |
+| Swagger | 接口暴露 | `/swagger-ui.html` |
+
+**Spring Data Commons RCE (CVE-2018-1273):**
+```
+username=[#this.getClass().forName("java.lang.Runtime").getRuntime().exec("id")]&password=&repeatedPassword=
+```
+
+**Shiro 指纹识别：** 响应包中出现 `rememberMe=deleteMe`
+
+### 判断网站语言
+
+在 URL 后加后缀测试：
+- `index.php` → PHP
+- `index.asp` / `index.aspx` → ASP/.NET
+- `index.jsp` → Java
+- 无后缀但有 `/api/` → 可能是 Go/Python/Node
+
+---
+
+## 十四、云安全与 Key 泄露
+
+### 云服务鉴权字段
+
+| 字段 | 位置 |
+|------|------|
+| Cookie | 请求头 |
+| Authorization | 请求头 (Bearer token) |
+| X-API-Key / Api-Key | 请求头 |
+| AccessKeyId + SecretKey | 阿里云/AWS/腾讯云 |
+
+### Key 泄露搜集
+
+```bash
+# GitHub 搜索
+site:github.com "AccessKeyId" "target公司名"
+site:github.com "AKIA" "target.com"  # AWS Key 前缀
+
+# 源码/JS 中搜索
+grep -rn "AccessKey\|SecretKey\|AKIA\|sk_live_" ./
+
+# 利用方式
+# 拿到 AK/SK 后可以登录对象存储(OSS)、控制 ECS 等
+```
+
+### 常见云安全问题
+
+| 问题 | 危害 |
+|------|------|
+| Bucket 权限配置为公共读写 | 任意上传/下载文件 |
+| AccessKey 泄露 | 控制整个云账户 |
+| 任意文件上传到 OSS | 挂马/钓鱼 |
+| 元数据 SSRF | `169.254.169.254` 获取临时凭证 |
+
+---
+
+## 十五、Kali/Parrot 工具参考
+
+### WAF 识别
+```bash
+wafw00f http://www.target.com
+```
+
+### CMS 识别
+```bash
+whatweb http://www.target.com
+```
+
+### 漏洞扫描器
+
+| 工具 | 用途 | 注意 |
+|------|------|------|
+| AWVS | Web 漏洞扫描 | 需要授权，流量大 |
+| Nessus | 主机/网络漏洞扫描 | 适合内网 |
+| Nuclei | 模板化扫描 | 开源免费，推荐 |
+
+### 漏洞环境搭建
+
+```bash
+# Vulhub — 经典漏洞 Docker 环境
+git clone https://github.com/vulhub/vulhub.git
+cd vulhub/struts2/s2-045
+docker compose up -d
+```
+
+---
+
+## 十六、DNS 记录类型
+
+| 记录类型 | 作用 |
+|----------|------|
+| A | 域名 → IPv4 |
+| AAAA | 域名 → IPv6 |
+| CNAME | 域名 → 另一个域名 |
+| MX | 邮件服务器 |
+| NS | 权威 DNS 服务器 |
+| TXT | 验证信息(SPF/DKIM/DMARC) |
+
+---
+
+## 十七、SRC 实战经验总结
+
+### 高价值目标优先级
+
+1. **支付/钱包** — 开发者 shortcuts 最多的地方
+2. **优惠券/积分** — 并发竞态+逻辑绕过
+3. **用户中心** — IDOR 水平越权
+4. **管理后台** — 垂直越权 + 弱口令
+5. **API 接口** — 未授权 + 参数篡改
+6. **文件上传** — getshell
+7. **密码重置** — 任意用户密码重置
+
+### 效率策略
+
+- **5 分钟规则** — 没进展就换目标
+- **兄弟接口** — 一个有洞旁边大概率也有
+- **20 分钟轮换** — 定期问自己"有进展吗？"
+- **深度优于广度** — 一个吃透 > 十个浅试
+- **跟着钱走** — 支付相关是高危重灾区
+
+### 注意事项补充
+
+- 有的挖到 0 元购（积分），目标觉得有风控不承认 → 发一次货再提交证明风控无效
+- 注销功能也可能存在短信轰炸
+- 众测平台养号很重要（漏洞盒子金融项目需要）
+- 补天专属 SRC 可以挖 gov 类
+- CNVD + CVE 可以双提交（一洞两吃）
+
+---
+
+*最后更新：2025-06*
